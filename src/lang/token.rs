@@ -1,3 +1,6 @@
+use super::parser::{ParseError, ParseErrorKind};
+use super::tracker::Tracker;
+
 #[derive(Debug, Clone, Copy)]
 pub enum TokenKind {
     NUM,
@@ -14,40 +17,43 @@ pub enum TokenKind {
 pub struct Token {
     pub kind: TokenKind,
     pub value: Option<f64>,
+    pub start: Option<Tracker>,
+    pub end: Option<Tracker>,
 }
 
 impl Token {
-    pub fn from(s: &str) -> Option<Token> {
-        match s {
-            "+" => Some(Token {
-                kind: TokenKind::ADD,
-                value: None,
-            }),
-            "-" => Some(Token {
-                kind: TokenKind::SUBTRACT,
-                value: None,
-            }),
-            "*" => Some(Token {
-                kind: TokenKind::MULTIPLY,
-                value: None,
-            }),
-            "/" => Some(Token {
-                kind: TokenKind::DIVIDE,
-                value: None,
-            }),
-            "^" => Some(Token {
-                kind: TokenKind::POWER,
-                value: None,
-            }),
-            "(" => Some(Token {
-                kind: TokenKind::LPAREN,
-                value: None,
-            }),
-            ")" => Some(Token {
-                kind: TokenKind::RPAREN,
-                value: None,
-            }),
+    pub fn from(
+        s: &str,
+        start: Option<Tracker>,
+        end: Option<Tracker>,
+    ) -> Result<Option<Token>, ParseError> {
+        if s == " " || s == "\t" {
+            return Ok(None);
+        }
+        let parsed_token = match s {
+            "+" => Some((TokenKind::ADD, None)),
+            "-" => Some((TokenKind::SUBTRACT, None)),
+            "*" => Some((TokenKind::MULTIPLY, None)),
+            "/" => Some((TokenKind::DIVIDE, None)),
+            "^" => Some((TokenKind::POWER, None)),
+            "(" => Some((TokenKind::LPAREN, None)),
+            ")" => Some((TokenKind::RPAREN, None)),
             _ => None,
+        };
+        if let Some((kind, value)) = parsed_token {
+            Ok(Some(Token {
+                kind,
+                value,
+                start,
+                end,
+            }))
+        } else {
+            Err(ParseError {
+                start,
+                end,
+                kind: ParseErrorKind::IllegalChar,
+                details: format!("'{}'", s),
+            })
         }
     }
 }
