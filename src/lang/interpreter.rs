@@ -1,4 +1,7 @@
-use super::{parser::Node, token::TokenKind};
+use super::{
+    parser::{Node, ParseError},
+    token::TokenKind,
+};
 
 #[derive(Debug)]
 pub struct NumberType {
@@ -34,6 +37,12 @@ impl NumberType {
         }
     }
 
+    fn power(&self, num: NumberType) -> NumberType {
+        NumberType {
+            value: self.value.powf(num.value),
+        }
+    }
+
     fn negate(&self) -> NumberType {
         NumberType { value: -self.value }
     }
@@ -42,31 +51,29 @@ impl NumberType {
 pub struct Interpreter;
 
 impl Interpreter {
-    pub fn visit(&mut self, n: Node) -> NumberType {
+    pub fn visit(&mut self, n: Node) -> Result<NumberType, ParseError> {
         return match n {
             Node::BinaryOp { left, right, op } => {
-                let left = self.visit(*left);
-                let right = self.visit(*right);
-                match op.kind {
+                let left = self.visit(*left)?;
+                let right = self.visit(*right)?;
+                Ok(match op.kind {
                     TokenKind::SUBTRACT => left.subtract(right),
                     TokenKind::ADD => left.add(right),
                     TokenKind::MULTIPLY => left.multiply(right),
                     TokenKind::DIVIDE => left.divide(right),
+                    TokenKind::POWER => left.power(right),
                     _ => left,
-                }
+                })
             }
             Node::UnaryOp { node, op } => {
-                let node = self.visit(*node);
-                match op.kind {
+                let node = self.visit(*node)?;
+                Ok(match op.kind {
                     TokenKind::SUBTRACT => node.negate(),
                     _ => node,
-                }
+                })
             }
-            Node::Number(token) => NumberType::new(token.value.unwrap()),
-            Node::Error(e) => {
-                println!("{}", e);
-                NumberType::new(0.0)
-            }
+            Node::Number(token) => Ok(NumberType::new(token.value.unwrap())),
+            Node::Error(e) => Err(e),
         };
     }
 }

@@ -1,4 +1,8 @@
-use super::token::{Token, TokenKind};
+use super::{
+    parser::{ParseError, ParseErrorKind},
+    token::{Token, TokenKind},
+    tracker::Tracker,
+};
 
 // const ADD: char = '+';
 // const SUBTRACT: char = '+';
@@ -7,7 +11,7 @@ use super::token::{Token, TokenKind};
 pub struct Lexer<'a> {
     text: &'a [u8],
     curr: Option<char>,
-    pos: usize,
+    tracker: Tracker,
 }
 
 impl Lexer<'_> {
@@ -15,39 +19,43 @@ impl Lexer<'_> {
         Lexer {
             text,
             curr: Some(text[0] as char),
-            pos: 0,
+            tracker: Tracker::new(0, 0, 0),
         }
     }
 
     fn advance(&mut self) {
-        self.pos += 1;
-        self.curr = if self.pos < self.text.len() {
-            Some(self.text[self.pos] as char)
+        self.tracker.advance(None);
+        // self.pos += 1;
+        self.curr = if self.tracker.index < self.text.len() {
+            Some(self.text[self.tracker.index] as char)
         } else {
             None
         }
     }
 
-    pub fn get_tokens(&mut self) -> Vec<Token> {
+    pub fn get_tokens(&mut self) -> Result<Vec<Token>, ParseError> {
         let mut tokens = Vec::new();
         while let Some(curr) = self.curr {
             let (token, adv) = match curr {
-                c if c.is_numeric() => (Some(self.make_number()), false),
-                c => (Token::from(&c.to_string()), true),
+                c if c.is_numeric() => (self.make_number(), false),
+                c => (Token::from(&c.to_string(), Some(self.tracker), None), true),
             };
-            if let Some(token) = token {
-                tokens.push(token);
-            }
             if adv {
                 self.advance();
             }
+            if let Ok(Some(token)) = token {
+                tokens.push(token);
+            } else if let Err(e) = token {
+                return Err(e);
+            }
         }
-        return tokens;
+        return Ok(tokens);
     }
 
-    fn make_number(&mut self) -> Token {
+    fn make_number(&mut self) -> Result<Option<Token>, ParseError> {
         let mut num_str = "".to_owned();
         let mut dots = 0;
+        let start = self.tracker.clone();
 
         while let Some(curr) = self.curr {
             match curr {
@@ -62,12 +70,19 @@ impl Lexer<'_> {
             self.advance();
         }
 
-        Token {
-            kind: TokenKind::NUM,
-            value: match num_str.parse::<f64>() {
-                Ok(n) => Some(n),
-                Err(_) => None,
-            },
+        match num_str.parse::<f64>() {
+            Ok(n) => Ok(Some(Token {
+                kind: TokenKind::NUM,
+                value: Some(n),
+                start: Some(start),
+                end: Some(self.tracker),
+            })),
+            Err(_) => Err(ParseError {
+                kind: ParseErrorKind::IllegalNumber,
+                details: num_str,
+                start: Some(start),
+                end: Some(self.tracker),
+            }),
         }
     }
 }

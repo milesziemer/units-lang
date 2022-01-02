@@ -1,4 +1,7 @@
-use super::token::{Token, TokenKind};
+use super::{
+    token::{Token, TokenKind},
+    tracker::Tracker,
+};
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -20,13 +23,28 @@ impl Parser {
         self.index += 1;
         if self.index < self.tokens.len() {
             self.curr = self.tokens.get(self.index).copied();
+        } else {
+            self.curr = None;
         }
         return self.curr;
     }
 
-    pub fn parse(&mut self) -> Result<Node, String> {
+    pub fn parse(&mut self) -> Result<Node, ParseError> {
         let result = self.expr();
-        Ok(result)
+        match result {
+            Node::Error(ParseError {
+                start,
+                end,
+                kind,
+                details,
+            }) => Err(ParseError {
+                start,
+                end,
+                kind,
+                details,
+            }),
+            _ => Ok(result),
+        }
     }
 
     fn expr(&mut self) -> Node {
@@ -34,6 +52,7 @@ impl Parser {
     }
 
     fn add_sub_expr(&mut self) -> Node {
+        // println!("add_sub_expr");
         let mut left = self.mul_div_expr();
         while let Some(token) = self.curr {
             match token.kind {
@@ -54,6 +73,7 @@ impl Parser {
     }
 
     fn mul_div_expr(&mut self) -> Node {
+        // println!("mul_div_expr");
         let mut left = self.sign_expr();
         while let Some(token) = self.curr {
             match token.kind {
@@ -70,27 +90,36 @@ impl Parser {
                 _ => break,
             }
         }
+        // println!("{:?}", left);
         return left;
     }
+
     fn sign_expr(&mut self) -> Node {
+        // println!("sign_expr");
         if let Some(token) = self.curr {
             let is_sign_expr = match token.kind {
                 TokenKind::ADD | TokenKind::SUBTRACT => true,
                 _ => false,
             };
             if is_sign_expr {
+                // println!("{:?}", token);
+                let op = token.clone();
                 self.advance();
                 let sign_expr = self.sign_expr();
                 return Node::UnaryOp {
                     node: Box::new(sign_expr),
-                    op: token,
+                    op,
                 };
             }
         }
-        return self.pow_expr();
+        let node = self.pow_expr();
+        // println!("sign node: {:?}", node);
+        return node;
+        // return self.pow_expr();
     }
 
     fn pow_expr(&mut self) -> Node {
+        // println!("pow_expr");
         let mut left = self.stmt();
         while let Some(token) = self.curr {
             match token.kind {
@@ -107,10 +136,12 @@ impl Parser {
                 _ => break,
             }
         }
+        // println!("pow node: {:?}", left);
         return left;
     }
 
     fn stmt(&mut self) -> Node {
+        // println!("stmt");
         if let Some(token) = self.curr {
             let (node, adv) = match token.kind {
                 TokenKind::NUM => (Node::Number(token), true),
@@ -121,7 +152,11 @@ impl Parser {
                         match tok.kind {
                             TokenKind::RPAREN => (expr, true),
                             _ => (
-                                Node::Error("Invalid Syntax Expected ')'".to_string()),
+                                Node::Error(ParseError::from(
+                                    Some(token),
+                                    ParseErrorKind::InvalidSyntax,
+                                    "Expected ')'".to_string(),
+                                )),
                                 false,
                             ),
                         }
@@ -130,16 +165,55 @@ impl Parser {
                     }
                 }
                 _ => (
-                    Node::Error("Invalid Syntax, Expected number or '('".to_string()),
-                    false,
+                    Node::Error(ParseError::from(
+                        Some(token),
+                        ParseErrorKind::InvalidSyntax,
+                        "Expected number or '('".to_string(),
+                    )),
+                    true,
                 ),
             };
             if adv {
                 self.advance();
             }
+            // println!("stmt node: {:?}", node);
             return node;
         }
-        return Node::Error("Invalid Syntax".to_string());
+        Node::Error(ParseError::from(
+            self.curr,
+            ParseErrorKind::InvalidSyntax,
+            "Expected number, '+', '-', or '('".to_string(),
+        ))
+    }
+}
+
+#[derive(Debug)]
+pub enum ParseErrorKind {
+    InvalidSyntax,
+    IllegalChar,
+    IllegalNumber,
+}
+
+#[derive(Debug)]
+pub struct ParseError {
+    pub start: Option<Tracker>,
+    pub end: Option<Tracker>,
+    pub kind: ParseErrorKind,
+    pub details: String,
+}
+
+impl ParseError {
+    fn from(token: Option<Token>, kind: ParseErrorKind, details: String) -> ParseError {
+        let (start, end) = match token {
+            Some(token) => (token.start, token.end),
+            None => (None, None),
+        };
+        ParseError {
+            start,
+            end,
+            kind,
+            details,
+        }
     }
 }
 
@@ -155,5 +229,5 @@ pub enum Node {
         op: Token,
     },
     Number(Token),
-    Error(String),
+    Error(ParseError),
 }
