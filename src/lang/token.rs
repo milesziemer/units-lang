@@ -3,6 +3,11 @@ pub enum TokenKind {
     NUM,
     ADD,
     SUBTRACT,
+    MULTIPLY,
+    DIVIDE,
+    POWER,
+    LPAREN,
+    RPAREN,
 }
 
 #[derive(Clone, Copy)]
@@ -20,6 +25,26 @@ impl Token {
             }),
             "-" => Some(Token {
                 kind: TokenKind::SUBTRACT,
+                value: None,
+            }),
+            "*" => Some(Token {
+                kind: TokenKind::MULTIPLY,
+                value: None,
+            }),
+            "/" => Some(Token {
+                kind: TokenKind::DIVIDE,
+                value: None,
+            }),
+            "^" => Some(Token {
+                kind: TokenKind::POWER,
+                value: None,
+            }),
+            "(" => Some(Token {
+                kind: TokenKind::LPAREN,
+                value: None,
+            }),
+            ")" => Some(Token {
+                kind: TokenKind::RPAREN,
                 value: None,
             }),
             _ => None,

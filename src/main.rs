@@ -49,10 +49,9 @@ fn run(line: String) -> String {
     if let Ok(res) = ast {
         let mut interpreter = Interpreter;
         let result = interpreter.visit(res);
-        println!("{:?}", result);
+        println!("{:?}", result.value);
+    } else if let Err(res) = ast {
+        println!("{:?}", res);
     }
-    // for token in tokens.iter() {
-    //     println!("{:?}", token);
-    // }
     return line;
 }
