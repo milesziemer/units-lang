@@ -25,32 +25,121 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> Result<Node, String> {
-        Ok(self.expr())
-    }
-
-    fn factor(&mut self) -> Node {
-        let token = self.curr.unwrap();
-        self.advance();
-        Node::Number(token)
+        let result = self.expr();
+        Ok(result)
     }
 
     fn expr(&mut self) -> Node {
-        let mut left = self.factor();
-        while let Some(curr) = self.curr {
-            match curr.kind {
-                TokenKind::SUBTRACT | TokenKind::ADD => {
+        return self.add_sub_expr();
+    }
+
+    fn add_sub_expr(&mut self) -> Node {
+        let mut left = self.mul_div_expr();
+        while let Some(token) = self.curr {
+            match token.kind {
+                TokenKind::ADD | TokenKind::SUBTRACT => {
+                    let op = token;
                     self.advance();
-                    let right = self.factor();
+                    let right = self.mul_div_expr();
                     left = Node::BinaryOp {
                         left: Box::new(left),
                         right: Box::new(right),
-                        op: curr,
+                        op,
+                    }
+                }
+                _ => break,
+            }
+        }
+        return left;
+    }
+
+    fn mul_div_expr(&mut self) -> Node {
+        let mut left = self.sign_expr();
+        while let Some(token) = self.curr {
+            match token.kind {
+                TokenKind::MULTIPLY | TokenKind::DIVIDE => {
+                    let op = token;
+                    self.advance();
+                    let right = self.sign_expr();
+                    left = Node::BinaryOp {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                        op,
                     };
                 }
                 _ => break,
             }
         }
         return left;
+    }
+    fn sign_expr(&mut self) -> Node {
+        if let Some(token) = self.curr {
+            let is_sign_expr = match token.kind {
+                TokenKind::ADD | TokenKind::SUBTRACT => true,
+                _ => false,
+            };
+            if is_sign_expr {
+                self.advance();
+                let sign_expr = self.sign_expr();
+                return Node::UnaryOp {
+                    node: Box::new(sign_expr),
+                    op: token,
+                };
+            }
+        }
+        return self.pow_expr();
+    }
+
+    fn pow_expr(&mut self) -> Node {
+        let mut left = self.stmt();
+        while let Some(token) = self.curr {
+            match token.kind {
+                TokenKind::POWER => {
+                    let op = token;
+                    self.advance();
+                    let right = self.sign_expr();
+                    left = Node::BinaryOp {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                        op,
+                    };
+                }
+                _ => break,
+            }
+        }
+        return left;
+    }
+
+    fn stmt(&mut self) -> Node {
+        if let Some(token) = self.curr {
+            let (node, adv) = match token.kind {
+                TokenKind::NUM => (Node::Number(token), true),
+                TokenKind::LPAREN => {
+                    self.advance();
+                    let expr = self.expr();
+                    if let Some(tok) = self.curr {
+                        match tok.kind {
+                            TokenKind::RPAREN => (expr, true),
+                            _ => (
+                                Node::Error("Invalid Syntax Expected ')'".to_string()),
+                                false,
+                            ),
+                        }
+                    } else {
+                        (expr, false)
+                    }
+                }
+                _ => (
+                    Node::Error("Invalid Syntax, Expected number or '('".to_string()),
+                    false,
+                ),
+            };
+            if adv {
+                self.advance();
+            }
+            return node;
+        }
+        return Node::Error("Invalid Syntax".to_string());
     }
 }
 
@@ -61,5 +150,10 @@ pub enum Node {
         right: Box<Node>,
         op: Token,
     },
+    UnaryOp {
+        node: Box<Node>,
+        op: Token,
+    },
     Number(Token),
+    Error(String),
 }
