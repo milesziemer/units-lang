@@ -1,5 +1,5 @@
 use super::{
-    token::{Token, TokenKind},
+    token::{KeywordKind, Token, TokenKind},
     tracker::Tracker,
 };
 
@@ -80,6 +80,30 @@ impl Parser {
     }
 
     fn expr(&mut self) -> Node {
+        if let Some(token) = self.curr.to_owned() {
+            if token.kind == TokenKind::KEYWORD(KeywordKind::LET) {
+                self.advance();
+                if let Some(token) = self.curr.to_owned() {
+                    if let TokenKind::IDENTIFIER(_) = &token.kind {
+                        let id_token = token.clone();
+                        self.advance();
+                        if let Some(token) = self.curr.to_owned() {
+                            if token.kind != TokenKind::EQUALS {
+                                return Node::Error(ParseError::from(
+                                    Some(token),
+                                    ParseErrorKind::InvalidSyntax,
+                                    "Expexted '='".to_string(),
+                                ));
+                            } else {
+                                self.advance();
+                                let node = Box::new(self.expr());
+                                return Node::Assignment { id_token, node };
+                            }
+                        }
+                    }
+                }
+            }
+        }
         return self.add_sub_expr();
     }
 
@@ -125,6 +149,7 @@ impl Parser {
                 self.advance();
                 return Node::Number(token);
             }
+
             if token.kind == TokenKind::LPAREN {
                 self.advance();
                 let expr = self.expr();
@@ -142,6 +167,10 @@ impl Parser {
                     }
                 }
             }
+            if let TokenKind::IDENTIFIER(_) = &token.kind {
+                self.advance();
+                return Node::Access(token);
+            }
         }
         Node::Error(ParseError::from(
             token,
@@ -156,6 +185,7 @@ pub enum ParseErrorKind {
     InvalidSyntax,
     IllegalChar,
     IllegalNumber,
+    UnknownIdentifier,
 }
 
 #[derive(Debug)]
@@ -167,7 +197,7 @@ pub struct ParseError {
 }
 
 impl ParseError {
-    fn from(token: Option<Token>, kind: ParseErrorKind, details: String) -> ParseError {
+    pub fn from(token: Option<Token>, kind: ParseErrorKind, details: String) -> ParseError {
         let (start, end) = match token {
             Some(token) => (token.start, token.end),
             None => (None, None),
@@ -193,5 +223,10 @@ pub enum Node {
         op: Token,
     },
     Number(Token),
+    Access(Token),
+    Assignment {
+        id_token: Token,
+        node: Box<Node>,
+    },
     Error(ParseError),
 }
