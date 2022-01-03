@@ -1,7 +1,7 @@
 mod lang;
 
 use lang::{
-    interpreter::{Interpreter, NumberType},
+    interpreter::{Interpreter, NumberType, SymbolTable},
     lexer::Lexer,
     parser::{ParseError, Parser},
 };
@@ -9,9 +9,10 @@ use lang::{
 use std::io::{stdin, stdout, Write};
 
 fn main() {
+    let mut symbol_table = SymbolTable::new();
     loop {
         let mut line = String::new();
-        print!("poop > ");
+        print!("units > ");
         let _ = stdout().flush();
         stdin()
             .read_line(&mut line)
@@ -22,7 +23,7 @@ fn main() {
         if let Some('\r') = line.chars().next_back() {
             line.pop();
         }
-        let result = run(line);
+        let result = run(line, &mut symbol_table);
         match result {
             Ok(num) => println!("{:?}", num.value),
             Err(e) => println!("{:?}", e),
@@ -30,11 +31,11 @@ fn main() {
     }
 }
 
-fn run(line: String) -> Result<NumberType, ParseError> {
+fn run(line: String, symbol_table: &mut SymbolTable) -> Result<NumberType, ParseError> {
     let mut lexer = Lexer::new(line.as_bytes());
     let tokens = lexer.get_tokens()?;
     let mut parser = Parser::new(tokens);
     let ast = parser.parse()?;
-    let mut interpreter = Interpreter;
+    let mut interpreter = Interpreter { symbol_table };
     interpreter.visit(ast)
 }
