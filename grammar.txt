@@ -1,8 +1,13 @@
-expr        : addsub-expr
+expr        : KEYWORD:'let' IDENTIFIER '=' expr
+            : addsub-expr
+
 addsub-expr : muldiv-expr (( '+' | '-' ) muldiv-expr)*
+
 muldiv-expr : sign-expr (( '*' | '/' ) sign-expr)*
+
 sign-expr   : ( '+' | '-' ) sign-expr
             : pow-expr
-pow-expr    : stmt ('**' sign-expr)*
-stmt        : NUMBER
+            
+pow-expr    : stmt ('^' sign-expr)*
+stmt        : NUMBER|IDENTIFIER
             : '(' expr ')'

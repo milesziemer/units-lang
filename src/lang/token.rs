@@ -1,7 +1,21 @@
 use super::parser::{ParseError, ParseErrorKind};
 use super::tracker::Tracker;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum KeywordKind {
+    LET,
+}
+
+impl KeywordKind {
+    pub fn from(s: &str) -> Option<KeywordKind> {
+        match s {
+            "let" => Some(KeywordKind::LET),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     NUM,
     ADD,
@@ -11,9 +25,12 @@ pub enum TokenKind {
     POWER,
     LPAREN,
     RPAREN,
+    EQUALS,
+    IDENTIFIER(String),
+    KEYWORD(KeywordKind),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Token {
     pub kind: TokenKind,
     pub value: Option<f64>,
@@ -38,6 +55,7 @@ impl Token {
             "^" => Some((TokenKind::POWER, None)),
             "(" => Some((TokenKind::LPAREN, None)),
             ")" => Some((TokenKind::RPAREN, None)),
+            "=" => Some((TokenKind::EQUALS, None)),
             _ => None,
         };
         if let Some((kind, value)) = parsed_token {

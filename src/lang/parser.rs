@@ -9,9 +9,18 @@ pub struct Parser {
     index: usize,
 }
 
+enum ExprType {
+    Expr,
+    AddSub,
+    MulDiv,
+    Sign,
+    Pow,
+    Stmt,
+}
+
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Parser {
-        let curr = tokens.first().copied();
+        let curr = tokens.first().cloned();
         Parser {
             tokens,
             curr,
@@ -19,32 +28,55 @@ impl Parser {
         }
     }
 
-    fn advance(&mut self) -> Option<Token> {
+    fn advance(&mut self) {
         self.index += 1;
         if self.index < self.tokens.len() {
-            self.curr = self.tokens.get(self.index).copied();
+            self.curr = self.tokens.get(self.index).cloned();
         } else {
             self.curr = None;
         }
-        return self.curr;
     }
 
     pub fn parse(&mut self) -> Result<Node, ParseError> {
         let result = self.expr();
         match result {
-            Node::Error(ParseError {
-                start,
-                end,
-                kind,
-                details,
-            }) => Err(ParseError {
-                start,
-                end,
-                kind,
-                details,
-            }),
+            Node::Error(e) => Err(e),
             _ => Ok(result),
         }
+    }
+
+    fn get_node(&mut self, expr_type: &ExprType) -> Node {
+        match *expr_type {
+            ExprType::Expr => self.expr(),
+            ExprType::AddSub => self.add_sub_expr(),
+            ExprType::MulDiv => self.mul_div_expr(),
+            ExprType::Pow => self.pow_expr(),
+            ExprType::Sign => self.sign_expr(),
+            ExprType::Stmt => self.stmt(),
+        }
+    }
+
+    fn binary_op(
+        &mut self,
+        left_expr_type: ExprType,
+        right_expr_type: ExprType,
+        comp: &dyn Fn(Token) -> bool,
+    ) -> Node {
+        let mut left = self.get_node(&left_expr_type);
+        while let Some(token) = self.curr.to_owned() {
+            if !comp(token.clone()) {
+                break;
+            }
+            let op = token;
+            self.advance();
+            let right = self.get_node(&right_expr_type);
+            left = Node::BinaryOp {
+                left: Box::new(left),
+                right: Box::new(right),
+                op,
+            }
+        }
+        return left;
     }
 
     fn expr(&mut self) -> Node {
@@ -52,135 +84,67 @@ impl Parser {
     }
 
     fn add_sub_expr(&mut self) -> Node {
-        // println!("add_sub_expr");
-        let mut left = self.mul_div_expr();
-        while let Some(token) = self.curr {
-            match token.kind {
-                TokenKind::ADD | TokenKind::SUBTRACT => {
-                    let op = token;
-                    self.advance();
-                    let right = self.mul_div_expr();
-                    left = Node::BinaryOp {
-                        left: Box::new(left),
-                        right: Box::new(right),
-                        op,
-                    }
-                }
-                _ => break,
-            }
-        }
-        return left;
+        self.binary_op(ExprType::MulDiv, ExprType::MulDiv, &|tok: Token| {
+            [TokenKind::ADD, TokenKind::SUBTRACT].contains(&tok.kind)
+        })
     }
 
     fn mul_div_expr(&mut self) -> Node {
-        // println!("mul_div_expr");
-        let mut left = self.sign_expr();
-        while let Some(token) = self.curr {
-            match token.kind {
-                TokenKind::MULTIPLY | TokenKind::DIVIDE => {
-                    let op = token;
-                    self.advance();
-                    let right = self.sign_expr();
-                    left = Node::BinaryOp {
-                        left: Box::new(left),
-                        right: Box::new(right),
-                        op,
-                    };
-                }
-                _ => break,
-            }
-        }
-        // println!("{:?}", left);
-        return left;
+        self.binary_op(ExprType::Sign, ExprType::Sign, &|tok: Token| {
+            [TokenKind::MULTIPLY, TokenKind::DIVIDE].contains(&tok.kind)
+        })
     }
 
     fn sign_expr(&mut self) -> Node {
-        // println!("sign_expr");
-        if let Some(token) = self.curr {
-            let is_sign_expr = match token.kind {
-                TokenKind::ADD | TokenKind::SUBTRACT => true,
-                _ => false,
-            };
-            if is_sign_expr {
-                // println!("{:?}", token);
+        if let Some(token) = self.curr.to_owned() {
+            if [TokenKind::ADD, TokenKind::SUBTRACT].contains(&token.kind) {
                 let op = token.clone();
                 self.advance();
-                let sign_expr = self.sign_expr();
+                let node = self.sign_expr();
+                // println!("node after: {:?}", node);
                 return Node::UnaryOp {
-                    node: Box::new(sign_expr),
+                    node: Box::new(node),
                     op,
                 };
             }
         }
-        let node = self.pow_expr();
-        // println!("sign node: {:?}", node);
-        return node;
-        // return self.pow_expr();
+        return self.pow_expr();
     }
 
     fn pow_expr(&mut self) -> Node {
-        // println!("pow_expr");
-        let mut left = self.stmt();
-        while let Some(token) = self.curr {
-            match token.kind {
-                TokenKind::POWER => {
-                    let op = token;
-                    self.advance();
-                    let right = self.sign_expr();
-                    left = Node::BinaryOp {
-                        left: Box::new(left),
-                        right: Box::new(right),
-                        op,
-                    };
-                }
-                _ => break,
-            }
-        }
-        // println!("pow node: {:?}", left);
-        return left;
+        self.binary_op(ExprType::Stmt, ExprType::Sign, &|tok: Token| {
+            tok.kind == TokenKind::POWER
+        })
     }
 
     fn stmt(&mut self) -> Node {
-        // println!("stmt");
-        if let Some(token) = self.curr {
-            let (node, adv) = match token.kind {
-                TokenKind::NUM => (Node::Number(token), true),
-                TokenKind::LPAREN => {
-                    self.advance();
-                    let expr = self.expr();
-                    if let Some(tok) = self.curr {
-                        match tok.kind {
-                            TokenKind::RPAREN => (expr, true),
-                            _ => (
-                                Node::Error(ParseError::from(
-                                    Some(token),
-                                    ParseErrorKind::InvalidSyntax,
-                                    "Expected ')'".to_string(),
-                                )),
-                                false,
-                            ),
-                        }
+        let token = self.curr.clone();
+        // println!("t: {:?}", token);
+        if let Some(token) = token.clone() {
+            if token.kind == TokenKind::NUM {
+                self.advance();
+                return Node::Number(token);
+            }
+            if token.kind == TokenKind::LPAREN {
+                self.advance();
+                let expr = self.expr();
+                // println!("expr: {:?}", expr);
+                if let Some(tok) = self.curr.clone() {
+                    if tok.kind == TokenKind::RPAREN {
+                        self.advance();
+                        return expr;
                     } else {
-                        (expr, false)
+                        return Node::Error(ParseError::from(
+                            self.curr.clone(),
+                            ParseErrorKind::InvalidSyntax,
+                            "Expected ')'".to_string(),
+                        ));
                     }
                 }
-                _ => (
-                    Node::Error(ParseError::from(
-                        Some(token),
-                        ParseErrorKind::InvalidSyntax,
-                        "Expected number or '('".to_string(),
-                    )),
-                    true,
-                ),
-            };
-            if adv {
-                self.advance();
             }
-            // println!("stmt node: {:?}", node);
-            return node;
         }
         Node::Error(ParseError::from(
-            self.curr,
+            token,
             ParseErrorKind::InvalidSyntax,
             "Expected number, '+', '-', or '('".to_string(),
         ))
