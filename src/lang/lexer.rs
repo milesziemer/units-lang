@@ -1,6 +1,6 @@
 use super::{
     parser::{ParseError, ParseErrorKind},
-    token::{Token, TokenKind},
+    token::{KeywordKind, Token, TokenKind},
     tracker::Tracker,
 };
 
@@ -25,7 +25,6 @@ impl Lexer<'_> {
 
     fn advance(&mut self) {
         self.tracker.advance(None);
-        // self.pos += 1;
         self.curr = if self.tracker.index < self.text.len() {
             Some(self.text[self.tracker.index] as char)
         } else {
@@ -38,6 +37,7 @@ impl Lexer<'_> {
         while let Some(curr) = self.curr {
             let (token, adv) = match curr {
                 c if c.is_numeric() => (self.make_number(), false),
+                c if c.is_alphabetic() || c == '_' => (self.make_identifier(), false),
                 c => (Token::from(&c.to_string(), Some(self.tracker), None), true),
             };
             if adv {
@@ -50,6 +50,32 @@ impl Lexer<'_> {
             }
         }
         return Ok(tokens);
+    }
+
+    fn make_identifier(&mut self) -> Result<Option<Token>, ParseError> {
+        let mut identifier = "".to_owned();
+        let start = self.tracker.clone();
+
+        while let Some(curr) = self.curr {
+            if !curr.is_alphanumeric() && curr != '_' {
+                break;
+            }
+            identifier += &curr.to_string();
+            self.advance();
+        }
+
+        let kind = if let Some(kw_kind) = KeywordKind::from(&identifier) {
+            TokenKind::KEYWORD(kw_kind)
+        } else {
+            TokenKind::IDENTIFIER(identifier)
+        };
+
+        Ok(Some(Token {
+            kind,
+            start: Some(start),
+            end: Some(self.tracker),
+            value: None,
+        }))
     }
 
     fn make_number(&mut self) -> Result<Option<Token>, ParseError> {
