@@ -1,10 +1,11 @@
 mod lang;
 
-use lang::{
-    interpreter::{Interpreter, NumberType, SymbolTable},
-    lexer::Lexer,
-    parser::{ParseError, Parser},
-};
+use lang::interpreter::SymbolTable;
+// use lang::{
+//     interpreter::{Interpreter, NumberType, SymbolTable},
+//     lexer::Lexer,
+//     parser::Parser,
+// };
 
 use std::io::{stdin, stdout, Write};
 
@@ -23,15 +24,15 @@ fn main() {
         if let Some('\r') = line.chars().next_back() {
             line.pop();
         }
-        let _result = run(line, &mut symbol_table);
-        // match result {
-        //     Ok(num) => println!("{:?}", num.value),
-        //     Err(e) => println!("{:?}", e),
-        // }
+        let result = run(line, &mut symbol_table);
+        match result {
+            Ok(_) => (),
+            Err(e) => println!("{:?}", e),
+        }
     }
 }
 
-fn run(line: String, _symbol_table: &mut SymbolTable) -> Result<(), ()> {
+fn run(line: String, _symbol_table: &mut SymbolTable) -> Result<(), error::Error> {
     let mut lexer = lexer::Lexer::new(line.as_bytes());
     let tokens = lexer.get_tokens()?;
     for token in tokens.iter() {
@@ -46,16 +47,26 @@ fn run(line: String, _symbol_table: &mut SymbolTable) -> Result<(), ()> {
     // interpreter.visit(ast)
 }
 
-pub enum _Error<T> {
-    InvalidSyntax(T),
-    IllegalChar(T),
-    IllegalNumber(T),
-    UnknownIdentifier(T),
+mod error {
+    use crate::Tracer;
+
+    #[derive(Debug)]
+    pub struct ErrorData {
+        pub trace: Tracer,
+        pub details: String,
+    }
+
+    #[derive(Debug)]
+    pub enum Error {
+        _InvalidSyntax(ErrorData),
+        IllegalChar(ErrorData),
+        _IllegalNumber(ErrorData),
+        _UnknownIdentifier(ErrorData),
+    }
 }
 
-pub trait Advances {
-    type Item;
-    fn advance(&mut self, curr: Self::Item) -> Self::Item;
+pub trait Advances<T> {
+    fn advance(&mut self, curr: Option<T>) -> Option<T>;
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -75,9 +86,8 @@ impl Location {
     }
 }
 
-impl Advances for Location {
-    type Item = Option<char>;
-    fn advance(&mut self, curr: Self::Item) -> Self::Item {
+impl Advances<char> for Location {
+    fn advance(&mut self, curr: Option<char>) -> Option<char> {
         self.index += 1;
         self.column += 1;
         if let Some('\n') = curr {
@@ -102,15 +112,15 @@ mod token {
     use crate::{Advances, Traceable, Tracer};
 
     #[derive(Debug)]
-    pub struct TokenData(Tracer);
+    pub struct TokenData(pub Tracer);
 
     #[derive(Debug)]
     pub struct ValueToken<T>(TokenData, T);
 
     #[derive(Debug)]
     pub enum Token {
-        Unknown,
         Empty,
+        Unknown(TokenData),
         Add(TokenData),
         Subtract(TokenData),
         Multiply(TokenData),
@@ -167,19 +177,19 @@ mod token {
                 '(' => Token::OpenParen(data),
                 ')' => Token::CloseParen(data),
                 '=' => Token::Equals(data),
-                _ => Token::Unknown,
+                _ => Token::Unknown(data),
             }
         }
 
         fn build(
             c: char,
-            adv: &mut (impl Advances<Item = Option<char>> + Traceable),
-            validator: &mut impl Validates,
+            adv: &mut (impl Advances<char> + Traceable),
+            vdr: &mut impl Validates,
         ) -> (String, TokenData) {
             let mut acc = c.to_string();
             let start = adv.get_current_location();
             while let Some(c) = adv.advance(None) {
-                if !validator.validate(c) {
+                if !vdr.validate(c) {
                     break;
                 }
                 acc.push_str(&c.to_string());
@@ -189,22 +199,16 @@ mod token {
             (acc, token_data)
         }
 
-        pub fn make_number(
-            c: char,
-            adv: &mut (impl Advances<Item = Option<char>> + Traceable),
-        ) -> Token {
+        pub fn make_number(c: char, adv: &mut (impl Advances<char> + Traceable)) -> Token {
             let mut validator = NumberValidator { dots: 0 };
             let (num_str, token_data) = Token::build(c, adv, &mut validator);
             match num_str.parse::<f64>() {
                 Ok(n) => Token::Number(ValueToken(token_data, n)),
-                Err(_) => Token::Unknown,
+                Err(_) => Token::Unknown(token_data),
             }
         }
 
-        pub fn make_identifier(
-            c: char,
-            adv: &mut (impl Advances<Item = Option<char>> + Traceable),
-        ) -> Token {
+        pub fn make_identifier(c: char, adv: &mut (impl Advances<char> + Traceable)) -> Token {
             let mut validator = IdentifierValidator;
             let (identifier, token_data) = Token::build(c, adv, &mut validator);
             match identifier.as_str() {
@@ -216,7 +220,11 @@ mod token {
 }
 
 mod lexer {
-    use crate::{token::Token, Advances, Location, Traceable};
+    use crate::{
+        error::{Error, ErrorData},
+        token::{Token, TokenData},
+        Advances, Location, Traceable,
+    };
     pub struct Lexer<'a> {
         text: &'a [u8],
         curr: Option<char>,
@@ -232,7 +240,7 @@ mod lexer {
             }
         }
 
-        pub fn get_tokens(&mut self) -> Result<Vec<Token>, ()> {
+        pub fn get_tokens(&mut self) -> Result<Vec<Token>, Error> {
             let mut tokens = Vec::new();
             while let Some(c) = self.curr {
                 let token = if c.is_numeric() {
@@ -244,8 +252,13 @@ mod lexer {
                     Token::fromchar(c, self)
                 };
                 match token {
+                    Token::Unknown(TokenData(trace)) => {
+                        return Err(Error::IllegalChar(ErrorData {
+                            trace,
+                            details: format!("Unexpected '{}'", &c),
+                        }));
+                    }
                     Token::Empty => (),
-                    Token::Unknown => println!("Error"),
                     _ => tokens.push(token),
                 }
             }
@@ -253,9 +266,8 @@ mod lexer {
         }
     }
 
-    impl Advances for Lexer<'_> {
-        type Item = Option<char>;
-        fn advance(&mut self, _: Self::Item) -> Self::Item {
+    impl Advances<char> for Lexer<'_> {
+        fn advance(&mut self, _: Option<char>) -> Option<char> {
             self.location.advance(None);
             self.curr = match self.location.index < self.text.len() {
                 true => Some(self.text[self.location.index] as char),
@@ -270,9 +282,4 @@ mod lexer {
             self.location
         }
     }
-}
-
-pub struct _ParseError {
-    pub trace: Tracer,
-    pub details: String,
 }
