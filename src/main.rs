@@ -1,6 +1,6 @@
 mod lang;
 
-use lang::interpreter::SymbolTable;
+use interpreter::{Interpreter, NumberType, SymbolTable};
 // use lang::{
 //     interpreter::{Interpreter, NumberType, SymbolTable},
 //     lexer::Lexer,
@@ -26,25 +26,22 @@ fn main() {
         }
         let result = run(line, &mut symbol_table);
         match result {
-            Ok(_) => (),
+            Ok(n) => println!("{:?}", n),
             Err(e) => println!("{:?}", e),
         }
     }
 }
 
-fn run(line: String, _symbol_table: &mut SymbolTable) -> Result<(), error::Error> {
+fn run(line: String, symbol_table: &mut SymbolTable) -> Result<NumberType, error::Error> {
     let mut lexer = lexer::Lexer::new(line.as_bytes());
     let tokens = lexer.get_tokens()?;
-    for token in tokens.iter() {
-        println!("{:?}", token);
-    }
-    Ok(())
-    // let mut lexer = Lexer::new(line.as_bytes());
-    // let tokens = lexer.get_tokens()?;
-    // let mut parser = Parser::new(tokens);
-    // let ast = parser.parse()?;
-    // let mut interpreter = Interpreter { symbol_table };
-    // interpreter.visit(ast)
+    let mut parser = parser::Parser::new(&tokens);
+    let ast = parser.parse()?;
+    let mut interpreter = Interpreter {
+        symbols: symbol_table,
+    };
+    let result = interpreter.visit(ast)?;
+    Ok(result)
 }
 
 mod error {
@@ -58,10 +55,11 @@ mod error {
 
     #[derive(Debug)]
     pub enum Error {
-        _InvalidSyntax(ErrorData),
+        InvalidSyntax(ErrorData),
         IllegalChar(ErrorData),
         _IllegalNumber(ErrorData),
-        _UnknownIdentifier(ErrorData),
+        UnknownIdentifier(ErrorData),
+        Unknown,
     }
 }
 
@@ -98,7 +96,7 @@ impl Advances<char> for Location {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tracer {
     pub start: Location,
     pub end: Location,
@@ -111,13 +109,13 @@ pub trait Traceable {
 mod token {
     use crate::{Advances, Traceable, Tracer};
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct TokenData(pub Tracer);
 
-    #[derive(Debug)]
-    pub struct ValueToken<T>(TokenData, T);
+    #[derive(Debug, Clone)]
+    pub struct ValueToken<T>(pub TokenData, pub T);
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub enum Token {
         Empty,
         Unknown(TokenData),
@@ -162,6 +160,24 @@ mod token {
     }
 
     impl Token {
+        pub fn get_trace(self) -> Option<Tracer> {
+            match self {
+                Token::Unknown(TokenData(t))
+                | Token::Add(TokenData(t))
+                | Token::Subtract(TokenData(t))
+                | Token::Multiply(TokenData(t))
+                | Token::Divide(TokenData(t))
+                | Token::Power(TokenData(t))
+                | Token::OpenParen(TokenData(t))
+                | Token::CloseParen(TokenData(t))
+                | Token::Equals(TokenData(t))
+                | Token::Let(TokenData(t)) => Some(t),
+                Token::Identifier(ValueToken(TokenData(t), _))
+                | Token::Number(ValueToken(TokenData(t), _)) => Some(t),
+                _ => None,
+            }
+        }
+
         pub fn fromchar(c: char, trc: &mut impl Traceable) -> Token {
             let data = TokenData(Tracer {
                 start: trc.get_current_location(),
@@ -280,6 +296,348 @@ mod lexer {
     impl Traceable for Lexer<'_> {
         fn get_current_location(&mut self) -> Location {
             self.location
+        }
+    }
+}
+
+mod parser {
+    use crate::{
+        error::{self, ErrorData},
+        token::{Token, TokenData, ValueToken},
+        Advances,
+    };
+
+    pub struct Parser<'a> {
+        tokens: &'a Vec<Token>,
+        curr: Option<&'a Token>,
+        last: Option<&'a Token>,
+        index: usize,
+    }
+
+    enum StatementType {
+        Expression,
+        Arithmetic,
+        Rational,
+        Exponential,
+        Apply,
+        Unit,
+    }
+
+    #[derive(Debug)]
+    pub enum Node {
+        BinaryOp {
+            left: Box<Node>,
+            right: Box<Node>,
+            op: Box<Token>,
+        },
+        UnaryOp {
+            node: Box<Node>,
+            op: Token,
+        },
+        Number(Token),
+        Access(Token),
+        Assignment {
+            id: Token,
+            node: Box<Node>,
+        },
+        Error(error::Error),
+    }
+
+    impl Parser<'_> {
+        pub fn new<'a>(tokens: &'a Vec<Token>) -> Parser<'a> {
+            Parser {
+                tokens,
+                curr: tokens.first(),
+                last: tokens.last(),
+                index: 0,
+            }
+        }
+
+        pub fn parse(&mut self) -> Result<Node, error::Error> {
+            Ok(self.expr())
+        }
+
+        fn get_node(&mut self, stmt_type: &StatementType) -> Node {
+            match *stmt_type {
+                StatementType::Expression => self.expr(),
+                StatementType::Arithmetic => self.arith(),
+                StatementType::Rational => self.rational(),
+                StatementType::Exponential => self.exp(),
+                StatementType::Apply => self.apply(),
+                StatementType::Unit => self.unit(),
+            }
+        }
+
+        fn binary_op(&mut self, stmt_type: StatementType, comp: &dyn Fn(&Token) -> bool) -> Node {
+            let mut left = self.get_node(&stmt_type);
+            while let Some(token) = self.curr {
+                if !comp(token) {
+                    break;
+                }
+                let op = Box::new(token.clone());
+                self.advance(None);
+                let right = self.get_node(&stmt_type);
+                left = Node::BinaryOp {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                    op,
+                }
+            }
+            return left;
+        }
+
+        fn expr(&mut self) -> Node {
+            if let Some(Token::Let(TokenData(trace))) = self.curr {
+                // We have a 'let' token, check for identifier
+                if let Some(Token::Identifier(value)) = self.advance(None) {
+                    // We have an identifier, check for equals sign
+                    if let Some(Token::Equals(TokenData(_))) = self.advance(None) {
+                        // We have an equals sign, evaluate expression
+                        self.advance(None);
+                        let node = Box::new(self.expr());
+                        return Node::Assignment {
+                            id: Token::Identifier(value.clone()),
+                            node,
+                        };
+                    } else {
+                        let ValueToken(TokenData(value), _) = value.clone();
+                        // 'let', 'ID' tokens with no equals sign, error
+                        return Node::Error(error::Error::InvalidSyntax(ErrorData {
+                            trace: value,
+                            details: format!("expected '='"),
+                        }));
+                    }
+                } else {
+                    // 'let' token with no identifier, error
+                    return Node::Error(error::Error::InvalidSyntax(ErrorData {
+                        trace: trace.clone(),
+                        details: format!("expected identifier"),
+                    }));
+                }
+            }
+            // No assignment, evaluate
+            return self.arith();
+        }
+
+        fn arith(&mut self) -> Node {
+            self.binary_op(StatementType::Rational, &|tok: &Token| match *tok {
+                Token::Add(_) | Token::Subtract(_) => true,
+                _ => false,
+            })
+        }
+
+        fn rational(&mut self) -> Node {
+            self.binary_op(StatementType::Exponential, &|tok: &Token| match *tok {
+                Token::Multiply(_) | Token::Divide(_) => true,
+                _ => false,
+            })
+        }
+
+        fn exp(&mut self) -> Node {
+            self.binary_op(StatementType::Apply, &|tok: &Token| match *tok {
+                Token::Power(_) => true,
+                _ => false,
+            })
+        }
+
+        fn apply(&mut self) -> Node {
+            if let Some(token) = match self.curr {
+                Some(Token::Add(_)) | Some(Token::Subtract(_)) => self.curr,
+                _ => None,
+            } {
+                let op = token.clone();
+                self.advance(None);
+                let node = self.apply();
+                return Node::UnaryOp {
+                    node: Box::new(node),
+                    op,
+                };
+            }
+            return self.unit();
+        }
+
+        fn unit(&mut self) -> Node {
+            if let Some(token) = self.curr {
+                match token.clone() {
+                    Token::Number(_) => {
+                        self.advance(None);
+                        return Node::Number(token.clone());
+                    }
+                    Token::OpenParen(TokenData(trace)) => {
+                        self.advance(None);
+                        let expr = self.expr();
+                        let token = self.curr.clone();
+                        if let Some(Token::CloseParen(_)) = token {
+                            self.advance(None);
+                            return expr;
+                        } else {
+                            return Node::Error(error::Error::InvalidSyntax(ErrorData {
+                                trace,
+                                details: format!("no matching ')' found"),
+                            }));
+                        }
+                    }
+                    Token::Identifier(_) => {
+                        self.advance(None);
+                        return Node::Access(token.clone());
+                    }
+                    _ => (),
+                }
+            }
+            if let Some(token) = self.last {
+                if let Some(trace) = token.clone().get_trace() {
+                    return Node::Error(error::Error::InvalidSyntax(ErrorData {
+                        trace,
+                        details: format!("expected number, identifier or '('"),
+                    }));
+                }
+            }
+            return Node::Error(error::Error::Unknown);
+        }
+    }
+
+    impl<'a> Advances<&'a Token> for Parser<'a> {
+        fn advance(&mut self, _: Option<&'a Token>) -> Option<&'a Token> {
+            self.index += 1;
+            self.curr = match self.index < self.tokens.len() {
+                true => Some(&self.tokens[self.index]),
+                false => None,
+            };
+            self.curr
+        }
+    }
+}
+
+mod interpreter {
+    #[derive(Debug, Clone)]
+    pub struct NumberType {
+        pub value: f64,
+    }
+
+    impl NumberType {
+        fn new(value: f64) -> NumberType {
+            NumberType { value }
+        }
+
+        fn add(&self, num: NumberType) -> NumberType {
+            NumberType {
+                value: self.value + num.value,
+            }
+        }
+
+        fn subtract(&self, num: NumberType) -> NumberType {
+            NumberType {
+                value: self.value - num.value,
+            }
+        }
+
+        fn multiply(&self, num: NumberType) -> NumberType {
+            NumberType {
+                value: self.value * num.value,
+            }
+        }
+
+        fn divide(&self, num: NumberType) -> NumberType {
+            NumberType {
+                value: self.value / num.value,
+            }
+        }
+
+        fn power(&self, num: NumberType) -> NumberType {
+            NumberType {
+                value: self.value.powf(num.value),
+            }
+        }
+
+        fn negate(&self) -> NumberType {
+            NumberType { value: -self.value }
+        }
+    }
+
+    use std::collections::HashMap;
+
+    use crate::{
+        error::{self, ErrorData},
+        parser::Node,
+        token::{Token, TokenData, ValueToken},
+    };
+
+    #[derive(Debug)]
+    pub struct SymbolTable {
+        pub table: HashMap<String, NumberType>,
+    }
+
+    impl SymbolTable {
+        pub fn new() -> SymbolTable {
+            SymbolTable {
+                table: HashMap::new(),
+            }
+        }
+
+        pub fn get(&self, id: String) -> Option<&NumberType> {
+            match self.table.get(&id) {
+                Some(n) => Some(n),
+                None => None,
+            }
+        }
+
+        pub fn set(&mut self, identifier: String, value: &NumberType) {
+            self.table.insert(identifier, value.clone());
+        }
+
+        pub fn _delete(&mut self, identifier: String) {
+            self.table.remove(&identifier);
+        }
+    }
+
+    pub struct Interpreter<'a> {
+        pub symbols: &'a mut SymbolTable,
+    }
+
+    impl Interpreter<'_> {
+        pub fn visit(&mut self, n: Node) -> Result<NumberType, error::Error> {
+            return match n {
+                Node::BinaryOp { left, right, op } => {
+                    let left = self.visit(*left)?;
+                    let right = self.visit(*right)?;
+                    Ok(match *op {
+                        Token::Add(_) => left.add(right),
+                        Token::Subtract(_) => left.subtract(right),
+                        Token::Multiply(_) => left.multiply(right),
+                        Token::Divide(_) => left.divide(right),
+                        Token::Power(_) => left.power(right),
+                        _ => left,
+                    })
+                }
+                Node::UnaryOp { node, op } => {
+                    let node = self.visit(*node)?;
+                    Ok(match op {
+                        Token::Subtract(_) => node.negate(),
+                        _ => node,
+                    })
+                }
+                Node::Number(Token::Number(ValueToken(_, value))) => Ok(NumberType::new(value)),
+                Node::Access(Token::Identifier(ValueToken(TokenData(trace), id))) => {
+                    let num = self.symbols.get(id.clone());
+                    match num {
+                        Some(n) => Ok(n.clone()),
+                        None => Err(error::Error::UnknownIdentifier(ErrorData {
+                            trace,
+                            details: format!("'{}' is not defined", id),
+                        })),
+                    }
+                }
+                Node::Assignment {
+                    id: Token::Identifier(ValueToken(_, id)),
+                    node,
+                } => {
+                    let node = self.visit(*node)?;
+                    self.symbols.set(id, &node);
+                    Ok(node)
+                }
+                Node::Error(e) => Err(e),
+                _ => Err(error::Error::Unknown),
+            };
         }
     }
 }
