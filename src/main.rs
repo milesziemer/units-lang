@@ -1,11 +1,6 @@
 mod lang;
 
 use interpreter::{Interpreter, NumberType, SymbolTable};
-// use lang::{
-//     interpreter::{Interpreter, NumberType, SymbolTable},
-//     lexer::Lexer,
-//     parser::Parser,
-// };
 
 use std::io::{stdin, stdout, Write};
 
@@ -35,6 +30,9 @@ fn main() {
 fn run(line: String, symbol_table: &mut SymbolTable) -> Result<NumberType, error::Error> {
     let mut lexer = lexer::Lexer::new(line.as_bytes());
     let tokens = lexer.get_tokens()?;
+    for tok in tokens.iter() {
+        println!("{:?}", tok);
+    }
     let mut parser = parser::Parser::new(&tokens);
     let ast = parser.parse()?;
     let mut interpreter = Interpreter {
@@ -110,6 +108,24 @@ mod token {
     use crate::{Advances, Traceable, Tracer};
 
     #[derive(Debug, Clone)]
+    pub enum UnitType {
+        Feet,
+        Inches,
+        Miles,
+    }
+
+    impl UnitType {
+        fn from(s: String) -> Option<UnitType> {
+            match s.as_str() {
+                "ft" => Some(UnitType::Feet),
+                "in" => Some(UnitType::Inches),
+                "mi" => Some(UnitType::Miles),
+                _ => None,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
     pub struct TokenData(pub Tracer);
 
     #[derive(Debug, Clone)]
@@ -130,12 +146,14 @@ mod token {
         Let(TokenData),
         Identifier(ValueToken<String>),
         Number(ValueToken<f64>),
+        UnitType(ValueToken<UnitType>),
     }
 
     struct NumberValidator {
         dots: u8,
     }
     struct IdentifierValidator;
+
     trait Validates {
         fn validate(&mut self, c: char) -> bool;
     }
@@ -227,6 +245,9 @@ mod token {
         pub fn make_identifier(c: char, adv: &mut (impl Advances<char> + Traceable)) -> Token {
             let mut validator = IdentifierValidator;
             let (identifier, token_data) = Token::build(c, adv, &mut validator);
+            if let Some(unit_type) = UnitType::from(identifier.clone()) {
+                return Token::UnitType(ValueToken(token_data, unit_type));
+            }
             match identifier.as_str() {
                 "let" => Token::Let(token_data),
                 _ => Token::Identifier(ValueToken(token_data, identifier)),
@@ -315,12 +336,12 @@ mod parser {
     }
 
     enum StatementType {
-        Expression,
-        Arithmetic,
+        _Expression,
+        _Arithmetic,
         Rational,
         Exponential,
         Apply,
-        Unit,
+        _Unit,
     }
 
     #[derive(Debug)]
@@ -359,12 +380,12 @@ mod parser {
 
         fn get_node(&mut self, stmt_type: &StatementType) -> Node {
             match *stmt_type {
-                StatementType::Expression => self.expr(),
-                StatementType::Arithmetic => self.arith(),
+                StatementType::_Expression => self.expr(),
+                StatementType::_Arithmetic => self.arith(),
                 StatementType::Rational => self.rational(),
                 StatementType::Exponential => self.exp(),
                 StatementType::Apply => self.apply(),
-                StatementType::Unit => self.unit(),
+                StatementType::_Unit => self.unit(),
             }
         }
 
