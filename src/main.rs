@@ -30,9 +30,6 @@ fn main() {
 fn run(line: String, symbol_table: &mut SymbolTable) -> Result<NumberType, error::Error> {
     let mut lexer = lexer::Lexer::new(line.as_bytes());
     let tokens = lexer.get_tokens()?;
-    for tok in tokens.iter() {
-        println!("{:?}", tok);
-    }
     let mut parser = parser::Parser::new(&tokens);
     let ast = parser.parse()?;
     let mut interpreter = Interpreter {
@@ -108,19 +105,86 @@ mod token {
     use crate::{Advances, Traceable, Tracer};
 
     #[derive(Debug, Clone, PartialEq)]
+    pub enum ImperialLength {
+        Inches,
+        Feet,
+        Yards,
+        Miles,
+    }
+
+    impl ImperialLength {
+        pub fn to(&self, other: ImperialLength) -> f64 {
+            use ImperialLength::*;
+            match (self.clone(), other) {
+                (a, b) if a == b => 1.0,
+                (Inches, Feet) => 1.0 / 12.0,
+                (Feet, Yards) => 1.0 / 3.0,
+                (Yards, Miles) => 1.0 / 1760.0,
+                (Inches, Yards) => Inches.to(Feet) * Feet.to(Yards),
+                (Inches, Miles) => Inches.to(Yards) * Yards.to(Miles),
+                (Feet, Miles) => Feet.to(Yards) * Yards.to(Miles),
+                (a, b) => 1.0 / b.to(a),
+            }
+        }
+        pub fn to_metric(&self) -> f64 {
+            self.to(ImperialLength::Feet) * 1.0 / 3.28084
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum MetricLength {
+        Millimeters,
+        Centimeters,
+        Meters,
+        Kilometers,
+    }
+
+    impl MetricLength {
+        pub fn to(&self, other: MetricLength) -> f64 {
+            use MetricLength::*;
+            match (self.clone(), other) {
+                (a, b) if a == b => 1.0,
+                (Millimeters, Centimeters) => 0.1,
+                (Centimeters, Meters) => 0.01,
+                (Meters, Kilometers) => 0.001,
+                (Millimeters, Meters) => Millimeters.to(Centimeters) * Centimeters.to(Meters),
+                (Millimeters, Kilometers) => Millimeters.to(Meters) * Meters.to(Kilometers),
+                (Centimeters, Kilometers) => Centimeters.to(Meters) * Meters.to(Kilometers),
+                (a, b) => 1.0 / b.to(a),
+            }
+        }
+        pub fn to_feet(&self) -> f64 {
+            self.to(MetricLength::Meters) * 3.28084
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum LengthUnit {
+        Imperial(ImperialLength),
+        Metric(MetricLength),
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
     pub enum UnitType {
         Empty,
-        Feet,
-        Inches,
-        Miles,
+        Length(LengthUnit),
     }
 
     impl UnitType {
         fn from(s: String) -> Option<UnitType> {
+            use ImperialLength::*;
+            use LengthUnit::*;
+            use MetricLength::*;
+            use UnitType::Length;
             match s.as_str() {
-                "ft" => Some(UnitType::Feet),
-                "in" => Some(UnitType::Inches),
-                "mi" => Some(UnitType::Miles),
+                "in" => Some(Length(Imperial(Inches))),
+                "ft" => Some(Length(Imperial(Feet))),
+                "yd" => Some(Length(Imperial(Yards))),
+                "mi" => Some(Length(Imperial(Miles))),
+                "mm" => Some(Length(Metric(Millimeters))),
+                "cm" => Some(Length(Metric(Centimeters))),
+                "m" => Some(Length(Metric(Meters))),
+                "km" => Some(Length(Metric(Kilometers))),
                 _ => None,
             }
         }
@@ -155,6 +219,8 @@ mod token {
     }
     struct IdentifierValidator;
 
+    struct UnitValidator;
+
     trait Validates {
         fn validate(&mut self, c: char) -> bool;
     }
@@ -175,6 +241,12 @@ mod token {
     impl Validates for IdentifierValidator {
         fn validate(&mut self, c: char) -> bool {
             c.is_alphanumeric() || c == '_'
+        }
+    }
+
+    impl Validates for UnitValidator {
+        fn validate(&mut self, c: char) -> bool {
+            c.is_alphanumeric()
         }
     }
 
@@ -254,6 +326,17 @@ mod token {
                 _ => Token::Identifier(ValueToken(token_data, identifier)),
             }
         }
+
+        pub fn make_unit(_: char, adv: &mut (impl Advances<char> + Traceable)) -> Token {
+            let mut validator = UnitValidator;
+            let start = adv.advance(None).unwrap_or(' ');
+            let (unit, token_data) = Token::build(start, adv, &mut validator);
+            if let Some(unit_type) = UnitType::from(unit.trim().to_string().clone()) {
+                return Token::UnitType(ValueToken(token_data, unit_type));
+            } else {
+                return Token::Unknown(token_data);
+            }
+        }
     }
 }
 
@@ -285,15 +368,25 @@ mod lexer {
                     Token::make_number(c, self)
                 } else if c.is_alphabetic() || c == '_' {
                     Token::make_identifier(c, self)
+                } else if c == ':' {
+                    Token::make_unit(c, self)
                 } else {
                     self.advance(None);
                     Token::fromchar(c, self)
                 };
                 match token {
                     Token::Unknown(TokenData(trace)) => {
+                        let token_slice = &self.text[trace.start.index..trace.end.index];
+                        let token_string = match std::str::from_utf8(token_slice) {
+                            Ok(s) => Some(s),
+                            Err(_) => None,
+                        };
                         return Err(Error::IllegalChar(ErrorData {
                             trace,
-                            details: format!("Unexpected '{}'", &c),
+                            details: format!(
+                                "Unexpected '{}'",
+                                token_string.unwrap_or(&c.to_string())
+                            ),
                         }));
                     }
                     Token::Empty => (),
@@ -325,7 +418,7 @@ mod lexer {
 mod parser {
     use crate::{
         error::{self, ErrorData},
-        token::{Token, TokenData, UnitType, ValueToken},
+        token::{Token, TokenData, ValueToken},
         Advances,
     };
 
@@ -356,15 +449,14 @@ mod parser {
             node: Box<Node>,
             op: Token,
         },
-        // Number(Token),
         Number {
             value: Token,
             unit_type: Option<Token>,
         },
-        // UnitType(Token),
         Access(Token),
         Assignment {
             id: Token,
+            unit_type: Option<Token>,
             node: Box<Node>,
         },
         Error(error::Error),
@@ -417,13 +509,31 @@ mod parser {
             if let Some(Token::Let(TokenData(trace))) = self.curr {
                 // We have a 'let' token, check for identifier
                 if let Some(Token::Identifier(value)) = self.advance(None) {
-                    // We have an identifier, check for equals sign
-                    if let Some(Token::Equals(TokenData(_))) = self.advance(None) {
+                    // We have an identifier, check for type and then equals sign
+                    let next = self.advance(None);
+                    if let Some(Token::UnitType(unit_token)) = next {
+                        if let Some(Token::Equals(TokenData(_))) = self.advance(None) {
+                            self.advance(None);
+                            let node = Box::new(self.expr());
+                            return Node::Assignment {
+                                id: Token::Identifier(value.clone()),
+                                unit_type: Some(Token::UnitType(unit_token.clone())),
+                                node,
+                            };
+                        } else {
+                            let ValueToken(TokenData(value), _) = value.clone();
+                            return Node::Error(error::Error::InvalidSyntax(ErrorData {
+                                trace: value,
+                                details: format!("expected '='"),
+                            }));
+                        }
+                    } else if let Some(Token::Equals(TokenData(_))) = next {
                         // We have an equals sign, evaluate expression
                         self.advance(None);
                         let node = Box::new(self.expr());
                         return Node::Assignment {
                             id: Token::Identifier(value.clone()),
+                            unit_type: None,
                             node,
                         };
                     } else {
@@ -551,8 +661,20 @@ mod parser {
 
 mod interpreter {
 
-    trait Converts {
-        fn convert(&self, other: UnitType) -> Self;
+    trait ToLength {
+        fn to(&self, other: LengthUnit) -> f64;
+    }
+
+    impl ToLength for LengthUnit {
+        fn to(&self, other: LengthUnit) -> f64 {
+            use crate::token::{ImperialLength::*, LengthUnit::*, MetricLength::*};
+            match (self.clone(), other) {
+                (Metric(a), Metric(b)) => a.to(b),
+                (Imperial(a), Imperial(b)) => a.to(b),
+                (Metric(a), Imperial(b)) => a.to_feet() * Feet.to(b),
+                (Imperial(a), Metric(b)) => a.to_metric() * Meters.to(b),
+            }
+        }
     }
 
     #[derive(Debug, Clone)]
@@ -561,42 +683,19 @@ mod interpreter {
         pub unit_type: UnitType,
     }
 
-    impl Converts for NumberType {
-        fn convert(&self, other: UnitType) -> Self {
-            match (self.unit_type.clone(), other) {
-                (a, b) if a == b => self.clone(),
-                (UnitType::Feet, UnitType::Inches) => NumberType {
-                    value: self.value * 12.0,
-                    unit_type: UnitType::Inches,
-                },
-                (UnitType::Inches, UnitType::Feet) => NumberType {
-                    value: self.value / 12.0,
-                    unit_type: UnitType::Feet,
-                },
-                (UnitType::Feet, UnitType::Miles) => NumberType {
-                    value: self.value / 5280.0,
-                    unit_type: UnitType::Miles,
-                },
-                (UnitType::Inches, UnitType::Miles) => NumberType {
-                    value: self.value / 63360.0,
-                    unit_type: UnitType::Miles,
-                },
-                (UnitType::Miles, UnitType::Feet) => NumberType {
-                    value: self.value * 5280.0,
-                    unit_type: UnitType::Feet,
-                },
-                (UnitType::Miles, UnitType::Inches) => NumberType {
-                    value: self.value * 63360.0,
-                    unit_type: UnitType::Miles,
-                },
-                _ => self.clone(),
-            }
-        }
-    }
-
     impl NumberType {
         fn new(value: f64, unit_type: UnitType) -> NumberType {
             NumberType { value, unit_type }
+        }
+
+        fn convert(&mut self, other: UnitType) {
+            use UnitType::*;
+            let factor = match (self.unit_type.clone(), other.clone()) {
+                (Length(a), Length(b)) => a.to(b),
+                _ => 1.0,
+            };
+            self.value = self.value * factor;
+            self.unit_type = other;
         }
 
         fn add(&self, num: NumberType) -> NumberType {
@@ -647,7 +746,7 @@ mod interpreter {
     use crate::{
         error::{self, ErrorData},
         parser::Node,
-        token::{Token, TokenData, UnitType, ValueToken},
+        token::{LengthUnit, Token, TokenData, UnitType, ValueToken},
     };
 
     #[derive(Debug)]
@@ -687,14 +786,14 @@ mod interpreter {
             return match n {
                 Node::BinaryOp { left, right, op } => {
                     let left = self.visit(*left)?;
-                    let right = self.visit(*right)?;
-                    let unit_type = left.unit_type.clone();
+                    let mut right = self.visit(*right)?;
+                    right.convert(left.unit_type.clone());
                     Ok(match *op {
-                        Token::Add(_) => left.add(right.convert(unit_type)),
-                        Token::Subtract(_) => left.subtract(right.convert(unit_type)),
-                        Token::Multiply(_) => left.multiply(right.convert(unit_type)),
-                        Token::Divide(_) => left.divide(right.convert(unit_type)),
-                        Token::Power(_) => left.power(right.convert(unit_type)),
+                        Token::Add(_) => left.add(right),
+                        Token::Subtract(_) => left.subtract(right),
+                        Token::Multiply(_) => left.multiply(right),
+                        Token::Divide(_) => left.divide(right),
+                        Token::Power(_) => left.power(right),
                         _ => left,
                     })
                 }
@@ -726,9 +825,13 @@ mod interpreter {
                 }
                 Node::Assignment {
                     id: Token::Identifier(ValueToken(_, id)),
+                    unit_type,
                     node,
                 } => {
-                    let node = self.visit(*node)?;
+                    let mut node = self.visit(*node)?;
+                    if let Some(Token::UnitType(ValueToken(_, u))) = unit_type {
+                        node.convert(u);
+                    }
                     self.symbols.set(id, &node);
                     Ok(node)
                 }
