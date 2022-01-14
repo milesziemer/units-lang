@@ -107,7 +107,7 @@ pub trait Traceable {
 mod token {
     use crate::{Advances, Traceable, Tracer};
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, PartialEq)]
     pub enum UnitType {
         Empty,
         Feet,
@@ -550,10 +550,48 @@ mod parser {
 }
 
 mod interpreter {
+
+    trait Converts {
+        fn convert(&self, other: UnitType) -> Self;
+    }
+
     #[derive(Debug, Clone)]
     pub struct NumberType {
         pub value: f64,
         pub unit_type: UnitType,
+    }
+
+    impl Converts for NumberType {
+        fn convert(&self, other: UnitType) -> Self {
+            match (self.unit_type.clone(), other) {
+                (a, b) if a == b => self.clone(),
+                (UnitType::Feet, UnitType::Inches) => NumberType {
+                    value: self.value * 12.0,
+                    unit_type: UnitType::Inches,
+                },
+                (UnitType::Inches, UnitType::Feet) => NumberType {
+                    value: self.value / 12.0,
+                    unit_type: UnitType::Feet,
+                },
+                (UnitType::Feet, UnitType::Miles) => NumberType {
+                    value: self.value / 5280.0,
+                    unit_type: UnitType::Miles,
+                },
+                (UnitType::Inches, UnitType::Miles) => NumberType {
+                    value: self.value / 63360.0,
+                    unit_type: UnitType::Miles,
+                },
+                (UnitType::Miles, UnitType::Feet) => NumberType {
+                    value: self.value * 5280.0,
+                    unit_type: UnitType::Feet,
+                },
+                (UnitType::Miles, UnitType::Inches) => NumberType {
+                    value: self.value * 63360.0,
+                    unit_type: UnitType::Miles,
+                },
+                _ => self.clone(),
+            }
+        }
     }
 
     impl NumberType {
@@ -650,12 +688,13 @@ mod interpreter {
                 Node::BinaryOp { left, right, op } => {
                     let left = self.visit(*left)?;
                     let right = self.visit(*right)?;
+                    let unit_type = left.unit_type.clone();
                     Ok(match *op {
-                        Token::Add(_) => left.add(right),
-                        Token::Subtract(_) => left.subtract(right),
-                        Token::Multiply(_) => left.multiply(right),
-                        Token::Divide(_) => left.divide(right),
-                        Token::Power(_) => left.power(right),
+                        Token::Add(_) => left.add(right.convert(unit_type)),
+                        Token::Subtract(_) => left.subtract(right.convert(unit_type)),
+                        Token::Multiply(_) => left.multiply(right.convert(unit_type)),
+                        Token::Divide(_) => left.divide(right.convert(unit_type)),
+                        Token::Power(_) => left.power(right.convert(unit_type)),
                         _ => left,
                     })
                 }
@@ -666,7 +705,6 @@ mod interpreter {
                         _ => node,
                     })
                 }
-                // Node::Number(Token::Number(ValueToken(_, value))) => Ok(NumberType::new(value)),
                 Node::Number {
                     value: Token::Number(ValueToken(_, value)),
                     unit_type,
