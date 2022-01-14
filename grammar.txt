@@ -1,4 +1,5 @@
 expr    : "let" IDENTIFIER "=" [ arith ]
+        : "let" IDENTIFIER ":" UNIT_TYPE "=" [ arith ]
         : [ arith ]
 
 arith   : [ rational ] { "+" | "-" } [ rational ]
