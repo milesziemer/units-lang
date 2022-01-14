@@ -17,4 +17,5 @@ apply       : { "+" | "-" } [ unit ]
 unit        : NUMBER
             : NUMBER UNIT_TYPE
             : IDENTIFIER
+            : IDENTIFIER ":" UNIT_TYPE
             : "(" [ expr ] ")"
