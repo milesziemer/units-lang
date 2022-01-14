@@ -109,6 +109,7 @@ mod token {
 
     #[derive(Debug, Clone)]
     pub enum UnitType {
+        Empty,
         Feet,
         Inches,
         Miles,
@@ -324,7 +325,7 @@ mod lexer {
 mod parser {
     use crate::{
         error::{self, ErrorData},
-        token::{Token, TokenData, ValueToken},
+        token::{Token, TokenData, UnitType, ValueToken},
         Advances,
     };
 
@@ -355,7 +356,12 @@ mod parser {
             node: Box<Node>,
             op: Token,
         },
-        Number(Token),
+        // Number(Token),
+        Number {
+            value: Token,
+            unit_type: Option<Token>,
+        },
+        // UnitType(Token),
         Access(Token),
         Assignment {
             id: Token,
@@ -482,7 +488,21 @@ mod parser {
                 match token.clone() {
                     Token::Number(_) => {
                         self.advance(None);
-                        return Node::Number(token.clone());
+                        // Check for a unit type identifier
+                        let unit_token = self.curr.clone();
+                        if let Some(Token::UnitType(_)) = unit_token {
+                            self.advance(None);
+                            return Node::Number {
+                                value: token.clone(),
+                                unit_type: unit_token.cloned(),
+                            };
+                        } else {
+                            return Node::Number {
+                                value: token.clone(),
+                                unit_type: None,
+                            };
+                        }
+                        // return Node::Number(token.clone());
                     }
                     Token::OpenParen(TokenData(trace)) => {
                         self.advance(None);
@@ -533,45 +553,54 @@ mod interpreter {
     #[derive(Debug, Clone)]
     pub struct NumberType {
         pub value: f64,
+        pub unit_type: UnitType,
     }
 
     impl NumberType {
-        fn new(value: f64) -> NumberType {
-            NumberType { value }
+        fn new(value: f64, unit_type: UnitType) -> NumberType {
+            NumberType { value, unit_type }
         }
 
         fn add(&self, num: NumberType) -> NumberType {
             NumberType {
                 value: self.value + num.value,
+                unit_type: self.unit_type.clone(),
             }
         }
 
         fn subtract(&self, num: NumberType) -> NumberType {
             NumberType {
                 value: self.value - num.value,
+                unit_type: self.unit_type.clone(),
             }
         }
 
         fn multiply(&self, num: NumberType) -> NumberType {
             NumberType {
                 value: self.value * num.value,
+                unit_type: self.unit_type.clone(),
             }
         }
 
         fn divide(&self, num: NumberType) -> NumberType {
             NumberType {
                 value: self.value / num.value,
+                unit_type: self.unit_type.clone(),
             }
         }
 
         fn power(&self, num: NumberType) -> NumberType {
             NumberType {
                 value: self.value.powf(num.value),
+                unit_type: self.unit_type.clone(),
             }
         }
 
         fn negate(&self) -> NumberType {
-            NumberType { value: -self.value }
+            NumberType {
+                value: -self.value,
+                unit_type: self.unit_type.clone(),
+            }
         }
     }
 
@@ -580,7 +609,7 @@ mod interpreter {
     use crate::{
         error::{self, ErrorData},
         parser::Node,
-        token::{Token, TokenData, ValueToken},
+        token::{Token, TokenData, UnitType, ValueToken},
     };
 
     #[derive(Debug)]
@@ -637,7 +666,16 @@ mod interpreter {
                         _ => node,
                     })
                 }
-                Node::Number(Token::Number(ValueToken(_, value))) => Ok(NumberType::new(value)),
+                // Node::Number(Token::Number(ValueToken(_, value))) => Ok(NumberType::new(value)),
+                Node::Number {
+                    value: Token::Number(ValueToken(_, value)),
+                    unit_type,
+                } => match unit_type {
+                    Some(Token::UnitType(ValueToken(_, unit_type))) => {
+                        Ok(NumberType::new(value, unit_type))
+                    }
+                    _ => Ok(NumberType::new(value, UnitType::Empty)),
+                },
                 Node::Access(Token::Identifier(ValueToken(TokenData(trace), id))) => {
                     let num = self.symbols.get(id.clone());
                     match num {
