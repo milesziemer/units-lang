@@ -14,5 +14,6 @@ apply       : { "+" | "-" } [ unit ]
             : [ unit ]
 
 unit        : NUMBER
+            : NUMBER UNIT_TYPE
             : IDENTIFIER
             : "(" [ expr ] ")"
