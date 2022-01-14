@@ -453,7 +453,10 @@ mod parser {
             value: Token,
             unit_type: Option<Token>,
         },
-        Access(Token),
+        Access {
+            value: Token,
+            unit_type: Option<Token>,
+        },
         Assignment {
             id: Token,
             unit_type: Option<Token>,
@@ -630,7 +633,19 @@ mod parser {
                     }
                     Token::Identifier(_) => {
                         self.advance(None);
-                        return Node::Access(token.clone());
+                        let unit_token = self.curr.clone();
+                        if let Some(Token::UnitType(_)) = unit_token {
+                            self.advance(None);
+                            return Node::Access {
+                                unit_type: unit_token.cloned(),
+                                value: token.clone(),
+                            };
+                        } else {
+                            return Node::Access {
+                                unit_type: None,
+                                value: token.clone(),
+                            };
+                        }
                     }
                     _ => (),
                 }
@@ -813,14 +828,21 @@ mod interpreter {
                     }
                     _ => Ok(NumberType::new(value, UnitType::Empty)),
                 },
-                Node::Access(Token::Identifier(ValueToken(TokenData(trace), id))) => {
+                Node::Access {
+                    value: Token::Identifier(ValueToken(TokenData(trace), id)),
+                    unit_type,
+                } => {
                     let num = self.symbols.get(id.clone());
-                    match num {
-                        Some(n) => Ok(n.clone()),
-                        None => Err(error::Error::UnknownIdentifier(ErrorData {
+                    if let Some(mut n) = num.cloned() {
+                        if let Some(Token::UnitType(ValueToken(_, u))) = unit_type {
+                            n.convert(u);
+                        }
+                        Ok(n.clone())
+                    } else {
+                        Err(error::Error::UnknownIdentifier(ErrorData {
                             trace,
                             details: format!("'{}' is not defined", id),
-                        })),
+                        }))
                     }
                 }
                 Node::Assignment {
