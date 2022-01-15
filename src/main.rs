@@ -19,6 +19,9 @@ fn main() {
         if let Some('\r') = line.chars().next_back() {
             line.pop();
         }
+        if line.trim().len() == 0 {
+            continue;
+        }
         let result = run(line, &mut symbol_table);
         match result {
             Ok(n) => println!("{:?}", n),
@@ -165,17 +168,17 @@ mod token {
     }
 
     #[derive(Debug, Clone, PartialEq)]
-    pub enum UnitType {
+    pub enum Unit {
         Empty,
         Length(LengthUnit),
     }
 
-    impl UnitType {
-        fn from(s: String) -> Option<UnitType> {
+    impl Unit {
+        fn from(s: String) -> Option<Unit> {
             use ImperialLength::*;
             use LengthUnit::*;
             use MetricLength::*;
-            use UnitType::Length;
+            use Unit::Length;
             match s.as_str() {
                 "in" => Some(Length(Imperial(Inches))),
                 "ft" => Some(Length(Imperial(Feet))),
@@ -211,7 +214,7 @@ mod token {
         Let(TokenData),
         Identifier(ValueToken<String>),
         Number(ValueToken<f64>),
-        UnitType(ValueToken<UnitType>),
+        Unit(ValueToken<Unit>),
     }
 
     struct NumberValidator {
@@ -318,8 +321,8 @@ mod token {
         pub fn make_identifier(c: char, adv: &mut (impl Advances<char> + Traceable)) -> Token {
             let mut validator = IdentifierValidator;
             let (identifier, token_data) = Token::build(c, adv, &mut validator);
-            if let Some(unit_type) = UnitType::from(identifier.clone()) {
-                return Token::UnitType(ValueToken(token_data, unit_type));
+            if let Some(unit) = Unit::from(identifier.clone()) {
+                return Token::Unit(ValueToken(token_data, unit));
             }
             match identifier.as_str() {
                 "let" => Token::Let(token_data),
@@ -331,8 +334,8 @@ mod token {
             let mut validator = UnitValidator;
             let start = adv.advance(None).unwrap_or(' ');
             let (unit, token_data) = Token::build(start, adv, &mut validator);
-            if let Some(unit_type) = UnitType::from(unit.trim().to_string().clone()) {
-                return Token::UnitType(ValueToken(token_data, unit_type));
+            if let Some(unit) = Unit::from(unit.trim().to_string().clone()) {
+                return Token::Unit(ValueToken(token_data, unit));
             } else {
                 return Token::Unknown(token_data);
             }
@@ -342,7 +345,7 @@ mod token {
 
 mod lexer {
     use crate::{
-        error::{Error, ErrorData},
+        error::{Error, Error::*, ErrorData},
         token::{Token, TokenData},
         Advances, Location, Traceable,
     };
@@ -381,7 +384,7 @@ mod lexer {
                             Ok(s) => Some(s),
                             Err(_) => None,
                         };
-                        return Err(Error::IllegalChar(ErrorData {
+                        return Err(IllegalChar(ErrorData {
                             trace,
                             details: format!(
                                 "Unexpected '{}'",
@@ -417,7 +420,7 @@ mod lexer {
 
 mod parser {
     use crate::{
-        error::{self, ErrorData},
+        error::{self, Error, Error::*, ErrorData},
         token::{Token, TokenData, ValueToken},
         Advances,
     };
@@ -451,18 +454,18 @@ mod parser {
         },
         Number {
             value: Token,
-            unit_type: Option<Token>,
+            unit: Option<Token>,
         },
         Access {
             value: Token,
-            unit_type: Option<Token>,
+            unit: Option<Token>,
         },
         Assignment {
             id: Token,
-            unit_type: Option<Token>,
+            unit: Option<Token>,
             node: Box<Node>,
         },
-        Error(error::Error),
+        Error(Error),
     }
 
     impl Parser<'_> {
@@ -475,7 +478,7 @@ mod parser {
             }
         }
 
-        pub fn parse(&mut self) -> Result<Node, error::Error> {
+        pub fn parse(&mut self) -> Result<Node, Error> {
             Ok(self.expr())
         }
 
@@ -509,24 +512,24 @@ mod parser {
         }
 
         fn expr(&mut self) -> Node {
-            if let Some(Token::Let(TokenData(trace))) = self.curr {
+            if let Some(Token::Let(TokenData(trace))) = self.curr.cloned() {
                 // We have a 'let' token, check for identifier
-                if let Some(Token::Identifier(value)) = self.advance(None) {
+                if let Some(Token::Identifier(value)) = self.advance(None).cloned() {
                     // We have an identifier, check for type and then equals sign
-                    let next = self.advance(None);
-                    if let Some(Token::UnitType(unit_token)) = next {
+                    let next = self.advance(None).cloned();
+                    if let Some(Token::Unit(unit)) = next {
                         if let Some(Token::Equals(TokenData(_))) = self.advance(None) {
                             self.advance(None);
                             let node = Box::new(self.expr());
                             return Node::Assignment {
-                                id: Token::Identifier(value.clone()),
-                                unit_type: Some(Token::UnitType(unit_token.clone())),
+                                id: Token::Identifier(value),
+                                unit: Some(Token::Unit(unit)),
                                 node,
                             };
                         } else {
-                            let ValueToken(TokenData(value), _) = value.clone();
-                            return Node::Error(error::Error::InvalidSyntax(ErrorData {
-                                trace: value,
+                            let ValueToken(TokenData(trace), _) = value;
+                            return Node::Error(InvalidSyntax(ErrorData {
+                                trace,
                                 details: format!("expected '='"),
                             }));
                         }
@@ -535,22 +538,22 @@ mod parser {
                         self.advance(None);
                         let node = Box::new(self.expr());
                         return Node::Assignment {
-                            id: Token::Identifier(value.clone()),
-                            unit_type: None,
+                            id: Token::Identifier(value),
+                            unit: None,
                             node,
                         };
                     } else {
-                        let ValueToken(TokenData(value), _) = value.clone();
+                        let ValueToken(TokenData(trace), _) = value;
                         // 'let', 'ID' tokens with no equals sign, error
-                        return Node::Error(error::Error::InvalidSyntax(ErrorData {
-                            trace: value,
+                        return Node::Error(InvalidSyntax(ErrorData {
+                            trace,
                             details: format!("expected '='"),
                         }));
                     }
                 } else {
                     // 'let' token with no identifier, error
-                    return Node::Error(error::Error::InvalidSyntax(ErrorData {
-                        trace: trace.clone(),
+                    return Node::Error(InvalidSyntax(ErrorData {
+                        trace,
                         details: format!("expected identifier"),
                     }));
                 }
@@ -598,21 +601,19 @@ mod parser {
 
         fn unit(&mut self) -> Node {
             if let Some(token) = self.curr {
-                match token.clone() {
+                let token = token.clone();
+                match token {
                     Token::Number(_) => {
                         self.advance(None);
                         // Check for a unit type identifier
-                        let unit_token = self.curr.clone();
-                        if let Some(Token::UnitType(_)) = unit_token {
+                        let unit = self.curr.cloned();
+                        if let Some(Token::Unit(_)) = unit {
                             self.advance(None);
-                            return Node::Number {
-                                value: token.clone(),
-                                unit_type: unit_token.cloned(),
-                            };
+                            return Node::Number { value: token, unit };
                         } else {
                             return Node::Number {
-                                value: token.clone(),
-                                unit_type: None,
+                                value: token,
+                                unit: None,
                             };
                         }
                         // return Node::Number(token.clone());
@@ -633,17 +634,17 @@ mod parser {
                     }
                     Token::Identifier(_) => {
                         self.advance(None);
-                        let unit_token = self.curr.clone();
-                        if let Some(Token::UnitType(_)) = unit_token {
+                        let unit = self.curr.cloned();
+                        if let Some(Token::Unit(_)) = unit {
                             self.advance(None);
                             return Node::Access {
-                                unit_type: unit_token.cloned(),
                                 value: token.clone(),
+                                unit,
                             };
                         } else {
                             return Node::Access {
-                                unit_type: None,
                                 value: token.clone(),
+                                unit: None,
                             };
                         }
                     }
@@ -695,63 +696,63 @@ mod interpreter {
     #[derive(Debug, Clone)]
     pub struct NumberType {
         pub value: f64,
-        pub unit_type: UnitType,
+        pub unit: Unit,
     }
 
     impl NumberType {
-        fn new(value: f64, unit_type: UnitType) -> NumberType {
-            NumberType { value, unit_type }
+        fn new(value: f64, unit: Unit) -> NumberType {
+            NumberType { value, unit }
         }
 
-        fn convert(&mut self, other: UnitType) {
-            use UnitType::*;
-            let factor = match (self.unit_type.clone(), other.clone()) {
+        fn convert(&mut self, other: Unit) {
+            use Unit::*;
+            let factor = match (self.unit.clone(), other.clone()) {
                 (Length(a), Length(b)) => a.to(b),
                 _ => 1.0,
             };
             self.value = self.value * factor;
-            self.unit_type = other;
+            self.unit = other;
         }
 
         fn add(&self, num: NumberType) -> NumberType {
             NumberType {
                 value: self.value + num.value,
-                unit_type: self.unit_type.clone(),
+                unit: self.unit.clone(),
             }
         }
 
         fn subtract(&self, num: NumberType) -> NumberType {
             NumberType {
                 value: self.value - num.value,
-                unit_type: self.unit_type.clone(),
+                unit: self.unit.clone(),
             }
         }
 
         fn multiply(&self, num: NumberType) -> NumberType {
             NumberType {
                 value: self.value * num.value,
-                unit_type: self.unit_type.clone(),
+                unit: self.unit.clone(),
             }
         }
 
         fn divide(&self, num: NumberType) -> NumberType {
             NumberType {
                 value: self.value / num.value,
-                unit_type: self.unit_type.clone(),
+                unit: self.unit.clone(),
             }
         }
 
         fn power(&self, num: NumberType) -> NumberType {
             NumberType {
                 value: self.value.powf(num.value),
-                unit_type: self.unit_type.clone(),
+                unit: self.unit.clone(),
             }
         }
 
         fn negate(&self) -> NumberType {
             NumberType {
                 value: -self.value,
-                unit_type: self.unit_type.clone(),
+                unit: self.unit.clone(),
             }
         }
     }
@@ -759,9 +760,9 @@ mod interpreter {
     use std::collections::HashMap;
 
     use crate::{
-        error::{self, ErrorData},
+        error::{self, Error::*, ErrorData},
         parser::Node,
-        token::{LengthUnit, Token, TokenData, UnitType, ValueToken},
+        token::{LengthUnit, Token, TokenData, Unit, ValueToken},
     };
 
     #[derive(Debug)]
@@ -802,7 +803,7 @@ mod interpreter {
                 Node::BinaryOp { left, right, op } => {
                     let left = self.visit(*left)?;
                     let mut right = self.visit(*right)?;
-                    right.convert(left.unit_type.clone());
+                    right.convert(left.unit.clone());
                     Ok(match *op {
                         Token::Add(_) => left.add(right),
                         Token::Subtract(_) => left.subtract(right),
@@ -821,25 +822,23 @@ mod interpreter {
                 }
                 Node::Number {
                     value: Token::Number(ValueToken(_, value)),
-                    unit_type,
-                } => match unit_type {
-                    Some(Token::UnitType(ValueToken(_, unit_type))) => {
-                        Ok(NumberType::new(value, unit_type))
-                    }
-                    _ => Ok(NumberType::new(value, UnitType::Empty)),
+                    unit,
+                } => match unit {
+                    Some(Token::Unit(ValueToken(_, unit))) => Ok(NumberType::new(value, unit)),
+                    _ => Ok(NumberType::new(value, Unit::Empty)),
                 },
                 Node::Access {
                     value: Token::Identifier(ValueToken(TokenData(trace), id)),
-                    unit_type,
+                    unit,
                 } => {
                     let num = self.symbols.get(id.clone());
                     if let Some(mut n) = num.cloned() {
-                        if let Some(Token::UnitType(ValueToken(_, u))) = unit_type {
+                        if let Some(Token::Unit(ValueToken(_, u))) = unit {
                             n.convert(u);
                         }
                         Ok(n.clone())
                     } else {
-                        Err(error::Error::UnknownIdentifier(ErrorData {
+                        Err(UnknownIdentifier(ErrorData {
                             trace,
                             details: format!("'{}' is not defined", id),
                         }))
@@ -847,11 +846,11 @@ mod interpreter {
                 }
                 Node::Assignment {
                     id: Token::Identifier(ValueToken(_, id)),
-                    unit_type,
+                    unit,
                     node,
                 } => {
                     let mut node = self.visit(*node)?;
-                    if let Some(Token::UnitType(ValueToken(_, u))) = unit_type {
+                    if let Some(Token::Unit(ValueToken(_, u))) = unit {
                         node.convert(u);
                     }
                     self.symbols.set(id, &node);
