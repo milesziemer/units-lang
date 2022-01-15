@@ -522,6 +522,10 @@ mod parser {
             func: Token,
             arg: Box<Node>,
         },
+        Conversion {
+            node: Box<Node>,
+            unit: Option<Token>,
+        },
         Error(Error),
     }
 
@@ -651,7 +655,15 @@ mod parser {
                     op,
                 };
             }
-            return self.unit();
+            let node = self.unit();
+            let token = self.curr.cloned();
+            if let Some(Token::Unit(_, _)) = token {
+                return Node::Conversion {
+                    node: Box::new(node),
+                    unit: token,
+                };
+            }
+            return node;
         }
 
         fn unit(&mut self) -> Node {
@@ -932,6 +944,13 @@ mod interpreter {
                 } => {
                     let mut num = self.visit(*arg)?;
                     num.apply(func);
+                    Ok(num)
+                }
+                Node::Conversion { node, unit } => {
+                    let mut num = self.visit(*node)?;
+                    if let Some(Token::Unit(_, u)) = unit {
+                        num.convert(u);
+                    }
                     Ok(num)
                 }
                 Node::Error(e) => Err(e),
