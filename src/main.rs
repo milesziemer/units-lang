@@ -33,6 +33,9 @@ fn main() {
 fn run(line: String, symbol_table: &mut SymbolTable) -> Result<NumberType, error::Error> {
     let mut lexer = lexer::Lexer::new(line.as_bytes());
     let tokens = lexer.get_tokens()?;
+    // for tok in tokens.iter() {
+    //     println!("{tok:?}")
+    // }
     let mut parser = parser::Parser::new(&tokens);
     let ast = parser.parse()?;
     let mut interpreter = Interpreter {
@@ -209,9 +212,32 @@ mod units {
     }
 }
 
+mod function {
+
+    #[derive(Debug, Clone)]
+    pub enum Function {
+        Sin,
+        Cos,
+        Tan,
+        Ln,
+    }
+
+    impl Function {
+        pub fn from(s: String) -> Option<Function> {
+            match s.as_str() {
+                "sin" => Some(Function::Sin),
+                "cos" => Some(Function::Cos),
+                "tan" => Some(Function::Tan),
+                "ln" => Some(Function::Ln),
+                _ => None,
+            }
+        }
+    }
+}
+
 mod token {
     use crate::units::Unit;
-    use crate::{Advances, Traceable, Tracer};
+    use crate::{function::Function, Advances, Traceable, Tracer};
 
     #[derive(Debug, Clone)]
     pub enum Token {
@@ -229,6 +255,7 @@ mod token {
         Id(Tracer, String),
         Number(Tracer, f64),
         Unit(Tracer, Unit),
+        Function(Tracer, Function),
     }
 
     struct NumberValidator {
@@ -237,6 +264,8 @@ mod token {
     struct IdentifierValidator;
 
     struct UnitValidator;
+
+    struct FunctionValidator;
 
     trait Validates {
         fn validate(&mut self, c: char) -> bool;
@@ -267,6 +296,12 @@ mod token {
         }
     }
 
+    impl Validates for FunctionValidator {
+        fn validate(&mut self, c: char) -> bool {
+            c.is_alphabetic()
+        }
+    }
+
     impl Token {
         pub fn get_trace(self) -> Option<Tracer> {
             match self {
@@ -280,7 +315,10 @@ mod token {
                 | Token::CloseParen(t)
                 | Token::Equals(t)
                 | Token::Let(t) => Some(t),
-                Token::Id(t, _) | Token::Number(t, _) => Some(t),
+                Token::Id(t, _)
+                | Token::Number(t, _)
+                | Token::Unit(t, _)
+                | Token::Function(t, _) => Some(t),
                 _ => None,
             }
         }
@@ -334,7 +372,9 @@ mod token {
         pub fn make_identifier(c: char, adv: &mut (impl Advances<char> + Traceable)) -> Token {
             let mut validator = IdentifierValidator;
             let (identifier, tracer) = Token::build(c, adv, &mut validator);
-            if let Some(unit) = Unit::from(identifier.clone()) {
+            if let Some(func) = Function::from(identifier.clone()) {
+                return Token::Function(tracer, func);
+            } else if let Some(unit) = Unit::from(identifier.clone()) {
                 return Token::Unit(tracer, unit);
             }
             match identifier.as_str() {
@@ -478,6 +518,10 @@ mod parser {
             unit: Option<Token>,
             node: Box<Node>,
         },
+        Function {
+            func: Token,
+            arg: Box<Node>,
+        },
         Error(Error),
     }
 
@@ -508,11 +552,11 @@ mod parser {
 
         fn binary_op(&mut self, stmt_type: StatementType, comp: &dyn Fn(&Token) -> bool) -> Node {
             let mut left = self.get_node(&stmt_type);
-            while let Some(token) = self.curr {
-                if !comp(token) {
+            while let Some(token) = self.curr.cloned() {
+                if !comp(&token) {
                     break;
                 }
-                let op = Box::new(token.clone());
+                let op = Box::new(token);
                 self.advance(None);
                 let right = self.get_node(&stmt_type);
                 left = Node::BinaryOp {
@@ -655,6 +699,32 @@ mod parser {
                             };
                         }
                     }
+                    Token::Function(func_trace, func) => {
+                        self.advance(None);
+                        let open_token = self.curr.clone();
+                        if let Some(Token::OpenParen(open_trace)) = open_token {
+                            self.advance(None);
+                            let expr = self.expr();
+                            let close_token = self.curr.clone();
+                            if let Some(Token::CloseParen(_)) = close_token {
+                                self.advance(None);
+                                return Node::Function {
+                                    func: Token::Function(func_trace, func),
+                                    arg: Box::new(expr),
+                                };
+                            } else {
+                                return Node::Error(InvalidSyntax(ErrorData {
+                                    trace: open_trace.clone(),
+                                    details: format!("expected ')'"),
+                                }));
+                            }
+                        } else {
+                            return Node::Error(InvalidSyntax(ErrorData {
+                                trace: func_trace,
+                                details: format!("expected '('"),
+                            }));
+                        }
+                    }
                     _ => (),
                 }
             }
@@ -688,6 +758,7 @@ mod interpreter {
 
     use crate::{
         error::{self, Error::*, ErrorData},
+        function::Function,
         parser::Node,
         token::Token,
         units::{ToLength, Unit},
@@ -754,6 +825,15 @@ mod interpreter {
                 value: -self.value,
                 unit: self.unit.clone(),
             }
+        }
+
+        fn apply(&mut self, func: Function) {
+            self.value = match func {
+                Function::Sin => self.value.sin(),
+                Function::Cos => self.value.cos(),
+                Function::Tan => self.value.tan(),
+                Function::Ln => self.value.ln(),
+            };
         }
     }
 
@@ -839,15 +919,23 @@ mod interpreter {
                     unit,
                     node,
                 } => {
-                    let mut node = self.visit(*node)?;
+                    let mut num = self.visit(*node)?;
                     if let Some(Token::Unit(_, u)) = unit {
-                        node.convert(u);
+                        num.convert(u);
                     }
-                    self.symbols.set(id, &node);
-                    Ok(node)
+                    self.symbols.set(id, &num);
+                    Ok(num)
+                }
+                Node::Function {
+                    func: Token::Function(_, func),
+                    arg,
+                } => {
+                    let mut num = self.visit(*arg)?;
+                    num.apply(func);
+                    Ok(num)
                 }
                 Node::Error(e) => Err(e),
-                _ => Err(error::Error::Unknown),
+                _ => Err(Unknown),
             };
         }
     }
