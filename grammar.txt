@@ -19,3 +19,4 @@ unit        : NUMBER
             : IDENTIFIER
             : IDENTIFIER ":" UNIT_TYPE
             : "(" [ expr ] ")"
+            : FUNCTION "(" [expr] ")"
