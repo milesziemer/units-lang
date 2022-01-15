@@ -1,10 +1,9 @@
-expr    : "let" IDENTIFIER "=" [ arith ]
-        : "let" IDENTIFIER ":" UNIT_TYPE "=" [ arith ]
-        : [ arith ]
-        : [ unit ] ":" UNIT_TYPE
+expr        : "let" IDENTIFIER "=" [ arith ]
+            : "let" IDENTIFIER ":" UNIT_TYPE "=" [ arith ]
+            : [ arith ]
 
-arith   : [ rational ] { "+" | "-" } [ rational ]
-        : [ rational ]
+arith       : [ rational ] { "+" | "-" } [ rational ]
+            : [ rational ]
 
 rational    : [ exp ] { "*" | "/" } [ exp ]
             : [ exp ]
@@ -13,6 +12,7 @@ exp         : [ apply ] "^" [ apply ]
             : [ apply ]
 
 apply       : { "+" | "-" } [ unit ]
+            : [ unit ] ":" UNIT_TYPE
             : [ unit ]
 
 unit        : NUMBER
