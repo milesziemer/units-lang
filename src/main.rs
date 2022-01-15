@@ -789,8 +789,8 @@ mod interpreter {
 
         fn convert(&mut self, other: Unit) {
             use crate::units::Unit::*;
-            let factor = match (self.unit.clone(), other.clone()) {
-                (Length(a), Length(b)) => a.to(b),
+            let factor = match (&self.unit, &other) {
+                (Length(a), Length(b)) => a.to(b.clone()),
                 _ => 1.0,
             };
             self.value = self.value * factor;
@@ -885,9 +885,13 @@ mod interpreter {
         pub fn visit(&mut self, n: Node) -> Result<NumberType, error::Error> {
             return match n {
                 Node::BinaryOp { left, right, op } => {
-                    let left = self.visit(*left)?;
+                    let mut left = self.visit(*left)?;
                     let mut right = self.visit(*right)?;
-                    right.convert(left.unit.clone());
+                    match (&left.unit, &right.unit) {
+                        (Unit::Empty, Unit::Empty) => (),
+                        (Unit::Empty, _) => left.convert(right.unit.clone()),
+                        (_, _) => right.convert(left.unit.clone()),
+                    }
                     Ok(match *op {
                         Token::Add(_) => left.add(right),
                         Token::Subtract(_) => left.subtract(right),
