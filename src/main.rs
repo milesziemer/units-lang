@@ -226,7 +226,7 @@ mod token {
         CloseParen(Tracer),
         Equals(Tracer),
         Let(Tracer),
-        Identifier(Tracer, String),
+        Id(Tracer, String),
         Number(Tracer, f64),
         Unit(Tracer, Unit),
     }
@@ -280,7 +280,7 @@ mod token {
                 | Token::CloseParen(t)
                 | Token::Equals(t)
                 | Token::Let(t) => Some(t),
-                Token::Identifier(t, _) | Token::Number(t, _) => Some(t),
+                Token::Id(t, _) | Token::Number(t, _) => Some(t),
                 _ => None,
             }
         }
@@ -339,7 +339,7 @@ mod token {
             }
             match identifier.as_str() {
                 "let" => Token::Let(tracer),
-                _ => Token::Identifier(tracer, identifier),
+                _ => Token::Id(tracer, identifier),
             }
         }
 
@@ -527,7 +527,7 @@ mod parser {
         fn expr(&mut self) -> Node {
             if let Some(Token::Let(let_trace)) = self.curr.cloned() {
                 // We have a 'let' token, check for identifier
-                if let Some(Token::Identifier(id_trace, id)) = self.advance(None).cloned() {
+                if let Some(Token::Id(id_trace, id)) = self.advance(None).cloned() {
                     // We have an identifier, check for type and then equals sign
                     let next = self.advance(None).cloned();
                     if let Some(Token::Unit(unit_trace, unit)) = next {
@@ -535,7 +535,7 @@ mod parser {
                             self.advance(None);
                             let node = Box::new(self.expr());
                             return Node::Assignment {
-                                id: Token::Identifier(id_trace, id),
+                                id: Token::Id(id_trace, id),
                                 unit: Some(Token::Unit(unit_trace, unit)),
                                 node,
                             };
@@ -550,7 +550,7 @@ mod parser {
                         self.advance(None);
                         let node = Box::new(self.expr());
                         return Node::Assignment {
-                            id: Token::Identifier(id_trace, id),
+                            id: Token::Id(id_trace, id),
                             unit: None,
                             node,
                         };
@@ -627,7 +627,6 @@ mod parser {
                                 unit: None,
                             };
                         }
-                        // return Node::Number(token.clone());
                     }
                     Token::OpenParen(trace) => {
                         self.advance(None);
@@ -643,7 +642,7 @@ mod parser {
                             }));
                         }
                     }
-                    Token::Identifier(_, _) => {
+                    Token::Id(_, _) => {
                         self.advance(None);
                         let unit = self.curr.cloned();
                         if let Some(Token::Unit(_, _)) = unit {
@@ -663,7 +662,7 @@ mod parser {
                 if let Some(trace) = token.clone().get_trace() {
                     return Node::Error(InvalidSyntax(ErrorData {
                         trace,
-                        details: format!("expected number, identifier or '('"),
+                        details: format!("expected number, identifier, unit or '('"),
                     }));
                 }
             }
@@ -684,6 +683,16 @@ mod parser {
 }
 
 mod interpreter {
+
+    use std::collections::HashMap;
+
+    use crate::{
+        error::{self, Error::*, ErrorData},
+        parser::Node,
+        token::Token,
+        units::ToLength,
+        units::Unit,
+    };
 
     #[derive(Debug, Clone)]
     pub struct NumberType {
@@ -749,16 +758,6 @@ mod interpreter {
         }
     }
 
-    use std::collections::HashMap;
-
-    use crate::{
-        error::{self, Error::*, ErrorData},
-        parser::Node,
-        token::Token,
-        units::ToLength,
-        units::Unit,
-    };
-
     #[derive(Debug)]
     pub struct SymbolTable {
         pub table: HashMap<String, NumberType>,
@@ -822,24 +821,22 @@ mod interpreter {
                     _ => Ok(NumberType::new(value, Unit::Empty)),
                 },
                 Node::Access {
-                    value: Token::Identifier(trace, id),
+                    value: Token::Id(trace, id),
                     unit,
-                } => {
-                    let num = self.symbols.get(id.clone());
-                    if let Some(mut n) = num.cloned() {
+                } => match self.symbols.get(id.to_string()).cloned() {
+                    Some(mut n) => {
                         if let Some(Token::Unit(_, u)) = unit {
                             n.convert(u);
                         }
                         Ok(n.clone())
-                    } else {
-                        Err(UnknownIdentifier(ErrorData {
-                            trace,
-                            details: format!("'{}' is not defined", id),
-                        }))
                     }
-                }
+                    _ => Err(UnknownIdentifier(ErrorData {
+                        trace,
+                        details: format!("'{id}' is not defined"),
+                    })),
+                },
                 Node::Assignment {
-                    id: Token::Identifier(_, id),
+                    id: Token::Id(_, id),
                     unit,
                     node,
                 } => {
