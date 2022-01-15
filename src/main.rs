@@ -690,8 +690,7 @@ mod interpreter {
         error::{self, Error::*, ErrorData},
         parser::Node,
         token::Token,
-        units::ToLength,
-        units::Unit,
+        units::{ToLength, Unit},
     };
 
     #[derive(Debug, Clone)]
