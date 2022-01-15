@@ -1,6 +1,7 @@
 expr    : "let" IDENTIFIER "=" [ arith ]
         : "let" IDENTIFIER ":" UNIT_TYPE "=" [ arith ]
         : [ arith ]
+        : [ unit ] ":" UNIT_TYPE
 
 arith   : [ rational ] { "+" | "-" } [ rational ]
         : [ rational ]
@@ -17,6 +18,5 @@ apply       : { "+" | "-" } [ unit ]
 unit        : NUMBER
             : NUMBER UNIT_TYPE
             : IDENTIFIER
-            : IDENTIFIER ":" UNIT_TYPE
             : "(" [ expr ] ")"
             : FUNCTION "(" [expr] ")"
