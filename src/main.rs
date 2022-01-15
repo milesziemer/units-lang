@@ -104,8 +104,7 @@ pub trait Traceable {
     fn get_current_location(&mut self) -> Location;
 }
 
-mod token {
-    use crate::{Advances, Traceable, Tracer};
+mod units {
 
     #[derive(Debug, Clone, PartialEq)]
     pub enum ImperialLength {
@@ -174,7 +173,7 @@ mod token {
     }
 
     impl Unit {
-        fn from(s: String) -> Option<Unit> {
+        pub fn from(s: String) -> Option<Unit> {
             use ImperialLength::*;
             use LengthUnit::*;
             use MetricLength::*;
@@ -193,28 +192,43 @@ mod token {
         }
     }
 
-    #[derive(Debug, Clone)]
-    pub struct TokenData(pub Tracer);
+    pub trait ToLength {
+        fn to(&self, other: LengthUnit) -> f64;
+    }
 
-    #[derive(Debug, Clone)]
-    pub struct ValueToken<T>(pub TokenData, pub T);
+    impl ToLength for LengthUnit {
+        fn to(&self, other: LengthUnit) -> f64 {
+            use crate::units::{ImperialLength::*, LengthUnit::*, MetricLength::*};
+            match (self.clone(), other) {
+                (Metric(a), Metric(b)) => a.to(b),
+                (Imperial(a), Imperial(b)) => a.to(b),
+                (Metric(a), Imperial(b)) => a.to_feet() * Feet.to(b),
+                (Imperial(a), Metric(b)) => a.to_metric() * Meters.to(b),
+            }
+        }
+    }
+}
+
+mod token {
+    use crate::units::Unit;
+    use crate::{Advances, Traceable, Tracer};
 
     #[derive(Debug, Clone)]
     pub enum Token {
         Empty,
-        Unknown(TokenData),
-        Add(TokenData),
-        Subtract(TokenData),
-        Multiply(TokenData),
-        Divide(TokenData),
-        Power(TokenData),
-        OpenParen(TokenData),
-        CloseParen(TokenData),
-        Equals(TokenData),
-        Let(TokenData),
-        Identifier(ValueToken<String>),
-        Number(ValueToken<f64>),
-        Unit(ValueToken<Unit>),
+        Unknown(Tracer),
+        Add(Tracer),
+        Subtract(Tracer),
+        Multiply(Tracer),
+        Divide(Tracer),
+        Power(Tracer),
+        OpenParen(Tracer),
+        CloseParen(Tracer),
+        Equals(Tracer),
+        Let(Tracer),
+        Identifier(Tracer, String),
+        Number(Tracer, f64),
+        Unit(Tracer, Unit),
     }
 
     struct NumberValidator {
@@ -256,38 +270,37 @@ mod token {
     impl Token {
         pub fn get_trace(self) -> Option<Tracer> {
             match self {
-                Token::Unknown(TokenData(t))
-                | Token::Add(TokenData(t))
-                | Token::Subtract(TokenData(t))
-                | Token::Multiply(TokenData(t))
-                | Token::Divide(TokenData(t))
-                | Token::Power(TokenData(t))
-                | Token::OpenParen(TokenData(t))
-                | Token::CloseParen(TokenData(t))
-                | Token::Equals(TokenData(t))
-                | Token::Let(TokenData(t)) => Some(t),
-                Token::Identifier(ValueToken(TokenData(t), _))
-                | Token::Number(ValueToken(TokenData(t), _)) => Some(t),
+                Token::Unknown(t)
+                | Token::Add(t)
+                | Token::Subtract(t)
+                | Token::Multiply(t)
+                | Token::Divide(t)
+                | Token::Power(t)
+                | Token::OpenParen(t)
+                | Token::CloseParen(t)
+                | Token::Equals(t)
+                | Token::Let(t) => Some(t),
+                Token::Identifier(t, _) | Token::Number(t, _) => Some(t),
                 _ => None,
             }
         }
 
         pub fn fromchar(c: char, trc: &mut impl Traceable) -> Token {
-            let data = TokenData(Tracer {
+            let t = Tracer {
                 start: trc.get_current_location(),
                 end: trc.get_current_location(),
-            });
+            };
             match c {
                 ' ' | '\t' => Token::Empty,
-                '+' => Token::Add(data),
-                '-' => Token::Subtract(data),
-                '*' => Token::Multiply(data),
-                '/' => Token::Divide(data),
-                '^' => Token::Power(data),
-                '(' => Token::OpenParen(data),
-                ')' => Token::CloseParen(data),
-                '=' => Token::Equals(data),
-                _ => Token::Unknown(data),
+                '+' => Token::Add(t),
+                '-' => Token::Subtract(t),
+                '*' => Token::Multiply(t),
+                '/' => Token::Divide(t),
+                '^' => Token::Power(t),
+                '(' => Token::OpenParen(t),
+                ')' => Token::CloseParen(t),
+                '=' => Token::Equals(t),
+                _ => Token::Unknown(t),
             }
         }
 
@@ -295,7 +308,7 @@ mod token {
             c: char,
             adv: &mut (impl Advances<char> + Traceable),
             vdr: &mut impl Validates,
-        ) -> (String, TokenData) {
+        ) -> (String, Tracer) {
             let mut acc = c.to_string();
             let start = adv.get_current_location();
             while let Some(c) = adv.advance(None) {
@@ -305,39 +318,39 @@ mod token {
                 acc.push_str(&c.to_string());
             }
             let end = adv.get_current_location();
-            let token_data = TokenData(Tracer { start, end });
-            (acc, token_data)
+            let tracer = Tracer { start, end };
+            (acc, tracer)
         }
 
         pub fn make_number(c: char, adv: &mut (impl Advances<char> + Traceable)) -> Token {
             let mut validator = NumberValidator { dots: 0 };
-            let (num_str, token_data) = Token::build(c, adv, &mut validator);
+            let (num_str, tracer) = Token::build(c, adv, &mut validator);
             match num_str.parse::<f64>() {
-                Ok(n) => Token::Number(ValueToken(token_data, n)),
-                Err(_) => Token::Unknown(token_data),
+                Ok(n) => Token::Number(tracer, n),
+                Err(_) => Token::Unknown(tracer),
             }
         }
 
         pub fn make_identifier(c: char, adv: &mut (impl Advances<char> + Traceable)) -> Token {
             let mut validator = IdentifierValidator;
-            let (identifier, token_data) = Token::build(c, adv, &mut validator);
+            let (identifier, tracer) = Token::build(c, adv, &mut validator);
             if let Some(unit) = Unit::from(identifier.clone()) {
-                return Token::Unit(ValueToken(token_data, unit));
+                return Token::Unit(tracer, unit);
             }
             match identifier.as_str() {
-                "let" => Token::Let(token_data),
-                _ => Token::Identifier(ValueToken(token_data, identifier)),
+                "let" => Token::Let(tracer),
+                _ => Token::Identifier(tracer, identifier),
             }
         }
 
         pub fn make_unit(_: char, adv: &mut (impl Advances<char> + Traceable)) -> Token {
             let mut validator = UnitValidator;
             let start = adv.advance(None).unwrap_or(' ');
-            let (unit, token_data) = Token::build(start, adv, &mut validator);
+            let (unit, tracer) = Token::build(start, adv, &mut validator);
             if let Some(unit) = Unit::from(unit.trim().to_string().clone()) {
-                return Token::Unit(ValueToken(token_data, unit));
+                return Token::Unit(tracer, unit);
             } else {
-                return Token::Unknown(token_data);
+                return Token::Unknown(tracer);
             }
         }
     }
@@ -346,7 +359,7 @@ mod token {
 mod lexer {
     use crate::{
         error::{Error, Error::*, ErrorData},
-        token::{Token, TokenData},
+        token::Token,
         Advances, Location, Traceable,
     };
     pub struct Lexer<'a> {
@@ -378,7 +391,7 @@ mod lexer {
                     Token::fromchar(c, self)
                 };
                 match token {
-                    Token::Unknown(TokenData(trace)) => {
+                    Token::Unknown(trace) => {
                         let token_slice = &self.text[trace.start.index..trace.end.index];
                         let token_string = match std::str::from_utf8(token_slice) {
                             Ok(s) => Some(s),
@@ -420,8 +433,8 @@ mod lexer {
 
 mod parser {
     use crate::{
-        error::{self, Error, Error::*, ErrorData},
-        token::{Token, TokenData, ValueToken},
+        error::{Error, Error::*, ErrorData},
+        token::Token,
         Advances,
     };
 
@@ -512,48 +525,46 @@ mod parser {
         }
 
         fn expr(&mut self) -> Node {
-            if let Some(Token::Let(TokenData(trace))) = self.curr.cloned() {
+            if let Some(Token::Let(let_trace)) = self.curr.cloned() {
                 // We have a 'let' token, check for identifier
-                if let Some(Token::Identifier(value)) = self.advance(None).cloned() {
+                if let Some(Token::Identifier(id_trace, id)) = self.advance(None).cloned() {
                     // We have an identifier, check for type and then equals sign
                     let next = self.advance(None).cloned();
-                    if let Some(Token::Unit(unit)) = next {
-                        if let Some(Token::Equals(TokenData(_))) = self.advance(None) {
+                    if let Some(Token::Unit(unit_trace, unit)) = next {
+                        if let Some(Token::Equals(_)) = self.advance(None) {
                             self.advance(None);
                             let node = Box::new(self.expr());
                             return Node::Assignment {
-                                id: Token::Identifier(value),
-                                unit: Some(Token::Unit(unit)),
+                                id: Token::Identifier(id_trace, id),
+                                unit: Some(Token::Unit(unit_trace, unit)),
                                 node,
                             };
                         } else {
-                            let ValueToken(TokenData(trace), _) = value;
                             return Node::Error(InvalidSyntax(ErrorData {
-                                trace,
+                                trace: unit_trace,
                                 details: format!("expected '='"),
                             }));
                         }
-                    } else if let Some(Token::Equals(TokenData(_))) = next {
+                    } else if let Some(Token::Equals(_)) = next {
                         // We have an equals sign, evaluate expression
                         self.advance(None);
                         let node = Box::new(self.expr());
                         return Node::Assignment {
-                            id: Token::Identifier(value),
+                            id: Token::Identifier(id_trace, id),
                             unit: None,
                             node,
                         };
                     } else {
-                        let ValueToken(TokenData(trace), _) = value;
                         // 'let', 'ID' tokens with no equals sign, error
                         return Node::Error(InvalidSyntax(ErrorData {
-                            trace,
+                            trace: id_trace,
                             details: format!("expected '='"),
                         }));
                     }
                 } else {
                     // 'let' token with no identifier, error
                     return Node::Error(InvalidSyntax(ErrorData {
-                        trace,
+                        trace: let_trace,
                         details: format!("expected identifier"),
                     }));
                 }
@@ -603,11 +614,11 @@ mod parser {
             if let Some(token) = self.curr {
                 let token = token.clone();
                 match token {
-                    Token::Number(_) => {
+                    Token::Number(_, _) => {
                         self.advance(None);
                         // Check for a unit type identifier
                         let unit = self.curr.cloned();
-                        if let Some(Token::Unit(_)) = unit {
+                        if let Some(Token::Unit(_, _)) = unit {
                             self.advance(None);
                             return Node::Number { value: token, unit };
                         } else {
@@ -618,7 +629,7 @@ mod parser {
                         }
                         // return Node::Number(token.clone());
                     }
-                    Token::OpenParen(TokenData(trace)) => {
+                    Token::OpenParen(trace) => {
                         self.advance(None);
                         let expr = self.expr();
                         let token = self.curr.clone();
@@ -626,24 +637,21 @@ mod parser {
                             self.advance(None);
                             return expr;
                         } else {
-                            return Node::Error(error::Error::InvalidSyntax(ErrorData {
+                            return Node::Error(InvalidSyntax(ErrorData {
                                 trace,
                                 details: format!("no matching ')' found"),
                             }));
                         }
                     }
-                    Token::Identifier(_) => {
+                    Token::Identifier(_, _) => {
                         self.advance(None);
                         let unit = self.curr.cloned();
-                        if let Some(Token::Unit(_)) = unit {
+                        if let Some(Token::Unit(_, _)) = unit {
                             self.advance(None);
-                            return Node::Access {
-                                value: token.clone(),
-                                unit,
-                            };
+                            return Node::Access { value: token, unit };
                         } else {
                             return Node::Access {
-                                value: token.clone(),
+                                value: token,
                                 unit: None,
                             };
                         }
@@ -653,13 +661,13 @@ mod parser {
             }
             if let Some(token) = self.last {
                 if let Some(trace) = token.clone().get_trace() {
-                    return Node::Error(error::Error::InvalidSyntax(ErrorData {
+                    return Node::Error(InvalidSyntax(ErrorData {
                         trace,
                         details: format!("expected number, identifier or '('"),
                     }));
                 }
             }
-            return Node::Error(error::Error::Unknown);
+            return Node::Error(Unknown);
         }
     }
 
@@ -677,22 +685,6 @@ mod parser {
 
 mod interpreter {
 
-    trait ToLength {
-        fn to(&self, other: LengthUnit) -> f64;
-    }
-
-    impl ToLength for LengthUnit {
-        fn to(&self, other: LengthUnit) -> f64 {
-            use crate::token::{ImperialLength::*, LengthUnit::*, MetricLength::*};
-            match (self.clone(), other) {
-                (Metric(a), Metric(b)) => a.to(b),
-                (Imperial(a), Imperial(b)) => a.to(b),
-                (Metric(a), Imperial(b)) => a.to_feet() * Feet.to(b),
-                (Imperial(a), Metric(b)) => a.to_metric() * Meters.to(b),
-            }
-        }
-    }
-
     #[derive(Debug, Clone)]
     pub struct NumberType {
         pub value: f64,
@@ -705,7 +697,7 @@ mod interpreter {
         }
 
         fn convert(&mut self, other: Unit) {
-            use Unit::*;
+            use crate::units::Unit::*;
             let factor = match (self.unit.clone(), other.clone()) {
                 (Length(a), Length(b)) => a.to(b),
                 _ => 1.0,
@@ -762,7 +754,9 @@ mod interpreter {
     use crate::{
         error::{self, Error::*, ErrorData},
         parser::Node,
-        token::{LengthUnit, Token, TokenData, Unit, ValueToken},
+        token::Token,
+        units::ToLength,
+        units::Unit,
     };
 
     #[derive(Debug)]
@@ -821,19 +815,19 @@ mod interpreter {
                     })
                 }
                 Node::Number {
-                    value: Token::Number(ValueToken(_, value)),
+                    value: Token::Number(_, value),
                     unit,
                 } => match unit {
-                    Some(Token::Unit(ValueToken(_, unit))) => Ok(NumberType::new(value, unit)),
+                    Some(Token::Unit(_, unit)) => Ok(NumberType::new(value, unit)),
                     _ => Ok(NumberType::new(value, Unit::Empty)),
                 },
                 Node::Access {
-                    value: Token::Identifier(ValueToken(TokenData(trace), id)),
+                    value: Token::Identifier(trace, id),
                     unit,
                 } => {
                     let num = self.symbols.get(id.clone());
                     if let Some(mut n) = num.cloned() {
-                        if let Some(Token::Unit(ValueToken(_, u))) = unit {
+                        if let Some(Token::Unit(_, u)) = unit {
                             n.convert(u);
                         }
                         Ok(n.clone())
@@ -845,12 +839,12 @@ mod interpreter {
                     }
                 }
                 Node::Assignment {
-                    id: Token::Identifier(ValueToken(_, id)),
+                    id: Token::Identifier(_, id),
                     unit,
                     node,
                 } => {
                     let mut node = self.visit(*node)?;
-                    if let Some(Token::Unit(ValueToken(_, u))) = unit {
+                    if let Some(Token::Unit(_, u)) = unit {
                         node.convert(u);
                     }
                     self.symbols.set(id, &node);
