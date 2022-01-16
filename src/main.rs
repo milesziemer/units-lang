@@ -1,5 +1,3 @@
-mod lang;
-
 use interpreter::{Interpreter, NumberType, SymbolTable};
 
 use std::io::{stdin, stdout, Write};
@@ -60,6 +58,7 @@ mod error {
         IllegalChar(ErrorData),
         _IllegalNumber(ErrorData),
         UnknownIdentifier(ErrorData),
+        UnknownUnit(ErrorData),
         Unknown,
     }
 }
@@ -193,6 +192,10 @@ mod units {
                 _ => None,
             }
         }
+
+        pub fn to_string(self) -> String {
+            "".to_string()
+        }
     }
 
     pub trait ToLength {
@@ -232,6 +235,10 @@ mod function {
                 _ => None,
             }
         }
+
+        pub fn to_string(self) -> String {
+            "".to_string()
+        }
     }
 }
 
@@ -242,7 +249,7 @@ mod token {
     #[derive(Debug, Clone)]
     pub enum Token {
         Empty,
-        Unknown(Tracer),
+        Unknown(Tracer, String),
         Add(Tracer),
         Subtract(Tracer),
         Multiply(Tracer),
@@ -303,10 +310,29 @@ mod token {
     }
 
     impl Token {
+        pub fn to_string(self) -> String {
+            match self {
+                Token::Add(_) => "+".to_string(),
+                Token::Subtract(_) => "-".to_string(),
+                Token::Multiply(_) => "*".to_string(),
+                Token::Divide(_) => "/".to_string(),
+                Token::Power(_) => "^".to_string(),
+                Token::OpenParen(_) => "(".to_string(),
+                Token::CloseParen(_) => ")".to_string(),
+                Token::Equals(_) => "=".to_string(),
+                Token::Let(_) => "let".to_string(),
+                Token::Unknown(_, value) => value,
+                Token::Id(_, id) => id,
+                Token::Number(_, num) => num.to_string(),
+                Token::Unit(_, unit) => unit.to_string(),
+                Token::Function(_, func) => func.to_string(),
+                _ => "".to_string(),
+            }
+        }
+
         pub fn get_trace(self) -> Option<Tracer> {
             match self {
-                Token::Unknown(t)
-                | Token::Add(t)
+                Token::Add(t)
                 | Token::Subtract(t)
                 | Token::Multiply(t)
                 | Token::Divide(t)
@@ -315,7 +341,8 @@ mod token {
                 | Token::CloseParen(t)
                 | Token::Equals(t)
                 | Token::Let(t) => Some(t),
-                Token::Id(t, _)
+                Token::Unknown(t, _)
+                | Token::Id(t, _)
                 | Token::Number(t, _)
                 | Token::Unit(t, _)
                 | Token::Function(t, _) => Some(t),
@@ -338,7 +365,7 @@ mod token {
                 '(' => Token::OpenParen(t),
                 ')' => Token::CloseParen(t),
                 '=' => Token::Equals(t),
-                _ => Token::Unknown(t),
+                _ => Token::Unknown(t, c.to_string()),
             }
         }
 
@@ -365,7 +392,7 @@ mod token {
             let (num_str, tracer) = Token::build(c, adv, &mut validator);
             match num_str.parse::<f64>() {
                 Ok(n) => Token::Number(tracer, n),
-                Err(_) => Token::Unknown(tracer),
+                Err(_) => Token::Unknown(tracer, num_str),
             }
         }
 
@@ -383,14 +410,18 @@ mod token {
             }
         }
 
-        pub fn make_unit(_: char, adv: &mut (impl Advances<char> + Traceable)) -> Token {
+        pub fn make_unit(c: char, adv: &mut (impl Advances<char> + Traceable)) -> Token {
             let mut validator = UnitValidator;
-            let start = adv.advance(None).unwrap_or(' ');
-            let (unit, tracer) = Token::build(start, adv, &mut validator);
-            if let Some(unit) = Unit::from(unit.trim().to_string().clone()) {
+            let start = if c.is_alphabetic() {
+                c
+            } else {
+                adv.advance(None).unwrap_or(' ')
+            };
+            let (unit_str, tracer) = Token::build(start, adv, &mut validator);
+            if let Some(unit) = Unit::from(unit_str.trim().to_string().clone()) {
                 return Token::Unit(tracer, unit);
             } else {
-                return Token::Unknown(tracer);
+                return Token::Unknown(tracer, unit_str);
             }
         }
     }
@@ -431,19 +462,30 @@ mod lexer {
                     Token::fromchar(c, self)
                 };
                 match token {
-                    Token::Unknown(trace) => {
-                        let token_slice = &self.text[trace.start.index..trace.end.index];
-                        let token_string = match std::str::from_utf8(token_slice) {
-                            Ok(s) => Some(s),
-                            Err(_) => None,
-                        };
+                    Token::Unknown(trace, token_str) => {
                         return Err(IllegalChar(ErrorData {
                             trace,
-                            details: format!(
-                                "Unexpected '{}'",
-                                token_string.unwrap_or(&c.to_string())
-                            ),
+                            details: format!("Unexpected '{token_str}'",),
                         }));
+                    }
+                    Token::Number(_, _) => {
+                        tokens.push(token);
+                        if let Some(c) = self.curr {
+                            if c.is_alphabetic() {
+                                let unit_token = Token::make_unit(c, self);
+                                if let Token::Unit(_, _) = unit_token {
+                                    tokens.push(unit_token);
+                                } else {
+                                    let trace = unit_token.clone().get_trace();
+                                    let details = unit_token.to_string();
+                                    return if let Some(trace) = trace {
+                                        Err(UnknownUnit(ErrorData { trace, details }))
+                                    } else {
+                                        Err(Unknown)
+                                    };
+                                }
+                            }
+                        }
                     }
                     Token::Empty => (),
                     _ => tokens.push(token),
@@ -677,6 +719,11 @@ mod parser {
                         if let Some(Token::Unit(_, _)) = unit {
                             self.advance(None);
                             return Node::Number { value: token, unit };
+                        } else if let Some(Token::Id(trace, id)) = unit {
+                            return Node::Error(UnknownUnit(ErrorData {
+                                trace,
+                                details: format!("'{id}'"),
+                            }));
                         } else {
                             return Node::Number {
                                 value: token,
@@ -846,6 +893,7 @@ mod interpreter {
                 Function::Tan => self.value.tan(),
                 Function::Ln => self.value.ln(),
             };
+            self.unit = Unit::Empty
         }
     }
 
