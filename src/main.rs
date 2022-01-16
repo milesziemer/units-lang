@@ -22,8 +22,8 @@ fn main() {
         }
         let result = run(line, &mut symbol_table);
         match result {
-            Ok(n) => println!("{:?}", n),
-            Err(e) => println!("{:?}", e),
+            Ok(n) => println!("{}", n.to_string()),
+            Err(e) => println!("{}", e.to_string()),
         }
     }
 }
@@ -31,9 +31,6 @@ fn main() {
 fn run(line: String, symbol_table: &mut SymbolTable) -> Result<NumberType, error::Error> {
     let mut lexer = lexer::Lexer::new(line.as_bytes());
     let tokens = lexer.get_tokens()?;
-    // for tok in tokens.iter() {
-    //     println!("{tok:?}")
-    // }
     let mut parser = parser::Parser::new(&tokens);
     let ast = parser.parse()?;
     let mut interpreter = Interpreter {
@@ -60,6 +57,35 @@ mod error {
         UnknownIdentifier(ErrorData),
         UnknownUnit(ErrorData),
         Unknown,
+    }
+
+    impl Error {
+        fn get_data(self) -> Option<ErrorData> {
+            use Error::*;
+            match self {
+                IllegalChar(e) | InvalidSyntax(e) | _IllegalNumber(e) | UnknownIdentifier(e)
+                | UnknownUnit(e) => Some(e),
+                _ => None,
+            }
+        }
+
+        pub fn to_string(self) -> String {
+            use Error::*;
+            let error_name = match self {
+                IllegalChar(_) => format!("Illegal Character"),
+                InvalidSyntax(_) => format!("Invalid Syntax"),
+                _IllegalNumber(_) => format!("Illegal Number"),
+                UnknownIdentifier(_) => format!("Unknown Identifier"),
+                UnknownUnit(_) => format!("Unknown Unit"),
+                _ => format!(""),
+            };
+            let details = if let Some(ErrorData { trace: _, details }) = self.get_data() {
+                details
+            } else {
+                "".to_string()
+            };
+            format!("{error_name}: {details}")
+        }
     }
 }
 
@@ -194,7 +220,22 @@ mod units {
         }
 
         pub fn to_string(self) -> String {
-            "".to_string()
+            use ImperialLength::*;
+            use LengthUnit::*;
+            use MetricLength::*;
+            use Unit::Length;
+            let unit_str = match self {
+                Length(Imperial(Inches)) => "in",
+                Length(Imperial(Feet)) => "ft",
+                Length(Imperial(Yards)) => "yd",
+                Length(Imperial(Miles)) => "mi",
+                Length(Metric(Millimeters)) => "mm",
+                Length(Metric(Centimeters)) => "cm",
+                Length(Metric(Meters)) => "m",
+                Length(Metric(Kilometers)) => "km",
+                _ => "",
+            };
+            unit_str.to_string()
         }
     }
 
@@ -832,6 +873,12 @@ mod interpreter {
     impl NumberType {
         fn new(value: f64, unit: Unit) -> NumberType {
             NumberType { value, unit }
+        }
+
+        pub fn to_string(self) -> String {
+            let unit = self.unit.to_string();
+            let value = self.value.to_string();
+            format!("{value} {unit}")
         }
 
         fn convert(&mut self, other: Unit) {
