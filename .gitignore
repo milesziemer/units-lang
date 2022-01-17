@@ -1,3 +1,10 @@
-/target
-/.vscode
+# Rust
+target/
 Cargo.lock
+
+# Web
+node_modules/
+generated.css
+yarn.lock
+
+.vscode/

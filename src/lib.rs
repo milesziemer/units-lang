@@ -1,34 +1,57 @@
 use interpreter::{Interpreter, NumberType, SymbolTable};
+use wasm_bindgen::prelude::*;
 
 use std::io::{stdin, stdout, Write};
 
-fn main() {
-    let mut symbol_table = SymbolTable::new();
-    loop {
-        let mut line = String::new();
-        print!("units > ");
-        let _ = stdout().flush();
-        stdin()
-            .read_line(&mut line)
-            .expect("Did not enter a valid string");
-        if let Some('\n') = line.chars().next_back() {
-            line.pop();
+// fn main() {
+//     let mut symbol_table = SymbolTable::new();
+//     loop {
+//         let mut line = String::new();
+//         print!("units > ");
+//         let _ = stdout().flush();
+//         stdin()
+//             .read_line(&mut line)
+//             .expect("Did not enter a valid string");
+//         if let Some('\n') = line.chars().next_back() {
+//             line.pop();
+//         }
+//         if let Some('\r') = line.chars().next_back() {
+//             line.pop();
+//         }
+//         if line.trim().len() == 0 {
+//             continue;
+//         }
+//         let result = run(line, &mut symbol_table);
+//         match result {
+//             Ok(n) => println!("{}", n.to_string()),
+//             Err(e) => println!("{}", e.to_string()),
+//         }
+//     }
+// }
+
+#[wasm_bindgen]
+pub struct Runtime {
+    symbols: SymbolTable,
+}
+
+#[wasm_bindgen]
+impl Runtime {
+    pub fn new() -> Runtime {
+        Runtime {
+            symbols: SymbolTable::new(),
         }
-        if let Some('\r') = line.chars().next_back() {
-            line.pop();
-        }
-        if line.trim().len() == 0 {
-            continue;
-        }
-        let result = run(line, &mut symbol_table);
+    }
+
+    pub fn run(&mut self, line: &str) -> String {
+        let result = get_response(line.to_string(), &mut self.symbols);
         match result {
-            Ok(n) => println!("{}", n.to_string()),
-            Err(e) => println!("{}", e.to_string()),
+            Ok(n) => format!("{}", n.to_string()),
+            Err(e) => format!("{}", e.to_string()),
         }
     }
 }
 
-fn run(line: String, symbol_table: &mut SymbolTable) -> Result<NumberType, error::Error> {
+fn get_response(line: String, symbol_table: &mut SymbolTable) -> Result<NumberType, error::Error> {
     let mut lexer = lexer::Lexer::new(line.as_bytes());
     let tokens = lexer.get_tokens()?;
     let mut parser = parser::Parser::new(&tokens);
