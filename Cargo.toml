@@ -1,8 +1,12 @@
 [package]
 name = "rs-units-interpreter"
 version = "0.1.0"
+authors = ["milesziemer"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# For compiling to wasm
+[lib]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+wasm-bindgen = "0.2.78"
