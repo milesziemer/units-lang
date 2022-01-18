@@ -1,7 +1,7 @@
 use interpreter::{Interpreter, NumberType, SymbolTable};
 use wasm_bindgen::prelude::*;
 
-use std::io::{stdin, stdout, Write};
+// use std::io::{stdin, stdout, Write};
 
 // fn main() {
 //     let mut symbol_table = SymbolTable::new();

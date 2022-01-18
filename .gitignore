@@ -4,6 +4,7 @@ Cargo.lock
 
 # Web
 node_modules/
+dist/
 generated.css
 yarn.lock
 

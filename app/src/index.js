@@ -1,3 +1,9 @@
+import "./css/generated.css";
+
+if (typeof module.hot !== "undefined") {
+  module.hot.accept();
+}
+
 import("units-lang")
   .then(({ Runtime }) => {
     const runtime = Runtime.new();
