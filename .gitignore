@@ -8,4 +8,10 @@ dist/
 generated.css
 yarn.lock
 
+# Deployment 
+.env
+.dockerignore
+ecs-params.yml
+docker-scripts/
+
 .vscode/
