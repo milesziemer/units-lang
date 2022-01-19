@@ -6,6 +6,7 @@ Cargo.lock
 node_modules/
 dist/
 generated.css
+generated.css.map
 yarn.lock
 
 # Deployment 
