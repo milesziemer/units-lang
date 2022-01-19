@@ -6,11 +6,275 @@
   </head>
   <body>
     <div class="app-container">
+      <div class="header">
+        <h1 class="display-1">units interpreter</h1>
+        <span class="header-icons-container">
+          <button id="docsButton" class="header-icon docs-icon"></button>
+          <a href="https://github.com/milesziemer/units-lang" class="header-icon github-icon"></a>
+        </span>
+      </div>
+      <div id="docs" class="docs-container">
+        <div class="accordion accordion-flush" id="accordionFlushExample">
+          <div class="accordion-item">
+            <div id="flush-headingOne">
+              <button
+                class="accordion-button collapsed"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#flush-collapseOne"
+                aria-expanded="false"
+                aria-controls="flush-collapseOne"
+              >
+                <h class="accordion-header display-5">what is units interpreter?</h>
+              </button>
+            </div>
+            <div
+              id="flush-collapseOne"
+              class="accordion-collapse collapse"
+              aria-labelledby="flush-headingOne"
+              data-bs-parent="#accordionFlushExample"
+            >
+              <div class="accordion-body">
+                <strong>units interpreter</strong> allows you to perform calculations in a familiar
+                and intuitive way, without having to worry about converting between different si
+                units
+              </div>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <div id="flush-headingTwo">
+              <button
+                class="accordion-button collapsed"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#flush-collapseTwo"
+                aria-expanded="false"
+                aria-controls="flush-collapseTwo"
+              >
+                <h class="accordion-header display-5">basic usage</h>
+              </button>
+            </div>
+            <div
+              id="flush-collapseTwo"
+              class="accordion-collapse collapse"
+              aria-labelledby="flush-headingTwo"
+              data-bs-parent="#accordionFlushExample"
+            >
+              <div class="accordion-body">
+                use the input prompt below just as you would any calculator.
+                <strong>units interpreter</strong> has all the standard operations, follows order of
+                operations, parenthesis etc.
+                <!-- use
+                <strong>*</strong> for multiplication, <strong>/</strong> for division,
+                <strong>^</strong> for powers, <strong>+</strong> for addition and
+                <strong>-</strong> for subtraction.  -->
+                you can see your calculations tracked above the input prompt.
+              </div>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <div id="flush-headingThree">
+              <button
+                class="accordion-button collapsed"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#flush-collapseThree"
+                aria-expanded="false"
+                aria-controls="flush-collapseThree"
+              >
+                <h class="accordion-header display-5">variable assignments</h>
+              </button>
+            </div>
+            <div
+              id="flush-collapseThree"
+              class="accordion-collapse collapse"
+              aria-labelledby="flush-headingThree"
+              data-bs-parent="#accordionFlushExample"
+            >
+              <div class="accordion-body">
+                when a value is going to be reused, it is best to store that value in a
+                <strong>variable</strong> rather than typing it out each time.
+                <strong>units interpreter</strong> allows you to do this with
+                <strong>variable assignments:</strong><br />
+                <span class="lead text-muted docs-example">
+                  units > <code> let storedValue = 25 * 3 / (1 + 5)</code><br />
+                </span>
+                <code>storedValue</code> is now assigned to the value of the arithmetic on the right
+                side of the <code>=</code> and can be used later like any other value.
+              </div>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <div id="flush-headingFour">
+              <button
+                class="accordion-button collapsed"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#flush-collapseFour"
+                aria-expanded="false"
+                aria-controls="flush-collapseFour"
+              >
+                <h class="accordion-header display-5">units and conversions</h>
+              </button>
+            </div>
+            <div
+              id="flush-collapseFour"
+              class="accordion-collapse collapse"
+              aria-labelledby="flush-headingFour"
+              data-bs-parent="#accordionFlushExample"
+            >
+              <div class="accordion-body">
+                in order to perform calculations with <strong>units</strong>, they must be specified
+                or <strong>annotated</strong>. this can be done multiple ways:<br />
+                <ul>
+                  <li>
+                    in variable assignments with <code>:</code><br />
+                    <span class="lead text-muted docs-example">
+                      units > <code>let x: km = 3.2</code>
+                    </span>
+                  </li>
+                  <li>
+                    next to the number<br />
+                    <span class="lead text-muted docs-example">
+                      units > <code>15 in + 3.2 cm</code>
+                    </span>
+                  </li>
+                  <li>
+                    as an operation with <code>:</code><br />
+                    <span class="lead text-muted docs-example">
+                      units > <code>(1 in + 2 cm): ft</code>
+                    </span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <div id="flush-headingFive">
+              <button
+                class="accordion-button collapsed"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#flush-collapseFive"
+                aria-expanded="false"
+                aria-controls="flush-collapseFive"
+              >
+                <h class="accordion-header display-5">functions</h>
+              </button>
+            </div>
+            <div
+              id="flush-collapseFive"
+              class="accordion-collapse collapse"
+              aria-labelledby="flush-headingFive"
+              data-bs-parent="#accordionFlushExample"
+            >
+              <div class="accordion-body">
+                more complex operations are supported via <strong>functions</strong>.
+                <strong>units interpreter</strong> currently has a few built-in
+                <strong>functions</strong>:<br />
+                <ul>
+                  <li>
+                    basic trig
+                    <span class="lead text-muted docs-example">
+                      <code>sin cos tan</code>
+                    </span>
+                  </li>
+                  <li>
+                    natural logarithm
+                    <span class="lead text-muted docs-example">
+                      <code>ln</code>
+                    </span>
+                  </li>
+                </ul>
+                <strong>functions</strong> can be called by passing a variable or number within
+                parenthesis like so:<br />
+                <span class="lead text-muted docs-example">
+                  units > <code>sin(3.14)</code><br
+                /></span>
+                all current <strong>functions</strong> have a unitless output. there are plans to
+                add more <strong>functions</strong> in the future, as well as allow user defined
+                functions, which may not have unitless output.
+              </div>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <div id="flush-headingSix">
+              <button
+                class="accordion-button collapsed"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#flush-collapseSix"
+                aria-expanded="false"
+                aria-controls="flush-collapseSix"
+              >
+                <h class="accordion-header display-5">supported units</h>
+              </button>
+            </div>
+            <div
+              id="flush-collapseSix"
+              class="accordion-collapse collapse"
+              aria-labelledby="flush-headingSix"
+              data-bs-parent="#accordionFlushExample"
+            >
+              <div class="accordion-body">
+                only <strong>units</strong> that are supported by
+                <strong>units interpreter</strong> can be used. others will cause an error.
+                currently the only supported units are basic length/distance:<br />
+                <ul>
+                  <li>
+                    imperial
+                    <span class="lead text-muted docs-example">
+                      <code>in ft yd mi</code>
+                    </span>
+                  </li>
+                  <li>
+                    metric
+                    <span class="lead text-muted docs-example">
+                      <code>mm cm m km</code>
+                    </span>
+                  </li>
+                </ul>
+                all length/distance units can be converted to and from one another.
+              </div>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <div id="flush-headingSeven">
+              <button
+                class="accordion-button collapsed"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#flush-collapseSeven"
+                aria-expanded="false"
+                aria-controls="flush-collapseSeven"
+              >
+                <h class="accordion-header display-5">built-in constants</h>
+              </button>
+            </div>
+            <div
+              id="flush-collapseSeven"
+              class="accordion-collapse collapse"
+              aria-labelledby="flush-headingSeven"
+              data-bs-parent="#accordionFlushExample"
+            >
+              <div class="accordion-body">
+                currently there are no built-in constants, but there are plans to add support for
+                <strong>pi</strong> and <strong>e</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
       <ul id="history" class="history-list list-group"></ul>
       <form id="interpreter" class="interpreter-form input-group-text">
-        <label for="console" class="lead">units >&nbsp;</label>
-        <input type="text" autocomplete="off" id="console" class="interpreter-input lead" />
+        <label for="prompt" class="lead">units >&nbsp;</label>
+        <input type="text" autocomplete="off" id="prompt" class="interpreter-prompt lead" />
       </form>
     </div>
+    <script
+      src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"
+      integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p"
+      crossorigin="anonymous"
+    ></script>
   </body>
 </html>

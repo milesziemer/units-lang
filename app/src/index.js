@@ -7,23 +7,31 @@ if (typeof module.hot !== "undefined") {
 import("units-lang")
   .then(({ Runtime }) => {
     const runtime = Runtime.new();
-    const interpElem = document.getElementById("interpreter");
-    const inputElem = document.getElementById("console");
+    const interpreter = document.getElementById("interpreter");
+    const prompt = document.getElementById("prompt");
     const history = document.getElementById("history");
-    inputElem.onfocus = (e) => {
-      e.preventDefault();
-      interpElem.style.boxShadow = "0 -0.5px 0 #000, 0px 0.5px 0 #000";
+    const docsButton = document.getElementById("docsButton");
+    docsButton.onclick = (e) => {
+      const docs = document.getElementById("docs");
+      // if (docs.style.display === "none") {
+      //   document.getElementById("")
+      // }
+      docs.style.display = docs.style.display === "none" ? "block" : "none";
     };
-    inputElem.onblur = (e) => {
+    prompt.onfocus = (e) => {
       e.preventDefault();
-      interpElem.style.boxShadow = "";
+      interpreter.style.boxShadow = "0 -0.5px 0 #000, 0px 0.5px 0 #000";
     };
-    interpElem.onsubmit = (e) => {
+    prompt.onblur = (e) => {
       e.preventDefault();
-      const input = inputElem.value;
+      interpreter.style.boxShadow = "";
+    };
+    interpreter.onsubmit = (e) => {
+      e.preventDefault();
+      const input = prompt.value;
       const echoElem = document.createElement("li");
       echoElem.textContent = "units > ";
-      echoElem.className = "lead history-list-item";
+      echoElem.className = "lead history-item";
       if (input.length > 0) {
         const response = runtime.run(input);
         echoElem.textContent += `${input}`;
@@ -33,7 +41,7 @@ import("units-lang")
         echoElem.appendChild(responseElem);
       }
       history.prepend(echoElem);
-      inputElem.value = "";
+      prompt.value = "";
     };
   })
   .catch((e) => console.error("Error loading App.js: ", e));
