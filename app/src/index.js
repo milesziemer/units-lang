@@ -13,18 +13,7 @@ import("units-lang")
     const docsButton = document.getElementById("docsButton");
     docsButton.onclick = (e) => {
       const docs = document.getElementById("docs");
-      // if (docs.style.display === "none") {
-      //   document.getElementById("")
-      // }
       docs.style.display = docs.style.display === "none" ? "block" : "none";
-    };
-    prompt.onfocus = (e) => {
-      e.preventDefault();
-      interpreter.style.boxShadow = "0 -0.5px 0 #000, 0px 0.5px 0 #000";
-    };
-    prompt.onblur = (e) => {
-      e.preventDefault();
-      interpreter.style.boxShadow = "";
     };
     interpreter.onsubmit = (e) => {
       e.preventDefault();
